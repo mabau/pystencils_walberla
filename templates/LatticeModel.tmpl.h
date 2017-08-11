@@ -1,9 +1,16 @@
 
 
-
-
-class {{modelName}}
+class AbstractLbmModel
 {
+      virtual void stream       ( IBlock * const block, const uint_t numberOfGhostLayersToInclude = uint_t(0) ) = 0;
+      virtual void collide      ( IBlock * const block, const uint_t numberOfGhostLayersToInclude = uint_t(0) ) = 0;
+      virtual void streamCollide( IBlock * const block, const uint_t numberOfGhostLayersToInclude = uint_t(0) ) = 0;
+};
+
+
+class {{className}} : public AbstractLbmModel
+{
+public:
    typedef stencil::{{stencilName}} Stencil;
    typedef stencil::{{stencilName}} CommunicationStencil;
    static const real_t w[{{Q}}];
@@ -12,25 +19,28 @@ class {{modelName}}
    static const bool compressible = {{compressible}};
    static const int equilibriumAccuracyOrder = {{equilibriumAccuracyOrder}};
 
-   //TODO packing/unpacking and configure
-   void pack( mpi::SendBuffer & buffer) const {}
-   void unpack( mpi::RecvBuffer & buffer) {}
-   void configure( IBlock & block, StructuredBlockStorage & sbs) {
 
+   {{className}}( {{streamCollideKernel|generateConstructorParameters}} )
+       : {{ streamCollideKernel|generateConstructorInitializerList }}
+   {};
+
+
+   //TODO
+   void pack( mpi::SendBuffer & buffer) const {
+   }
+   void unpack( mpi::RecvBuffer & buffer) {
+   }
+   void configure( IBlock & block, StructuredBlockStorage & sbs) {
+       {{streamCollideKernel|generateBlockDataToFieldExtraction(['pdfs', 'pdfs_tmp'])|indent(8)}}
    }
 
 private:
-   {% for relaxationRate in relaxationRates -%}
-   real_t {{relaxationRate}};
-   {% endfor -%}
+    {{streamCollideKernel|generateMembers|indent(4)}}
 
-   {% for forceComponent in forceParameters %}
-   real_t {{forceComponent}};
-   {% endfor %}
 };
 
-const real_t  {{modelName}}::w[19] = { {{weights}} }
-const real_t  {{modelName}}::wInv[19] = { {{inverseWeights}} };
+const real_t  {{className}}::w[19] = { {{weights}} }c
+const real_t  {{className}}::wInv[19] = { {{inverseWeights}} };
 
 
 // EquilibriumDistribution
@@ -40,58 +50,72 @@ class EquilibriumDistribution<MyLatticeModel, void>
 {
    typedef typename LatticeModel_T::Stencil Stencil;
 
-
+   /*
    static real_t get( const real_t cx, const real_t cy, const real_t cz, const real_t w,
                       const Vector3< real_t > & velocity = Vector3< real_t >( real_t(0.0) ),
                       const real_t rho = real_t(1.0) )
-   {
-   }
+   */
 
    static real_t get( const stencil::Direction direction,
-                      const Vector3< real_t > & velocity = Vector3< real_t >( real_t(0.0) ),
+                      const Vector3< real_t > & u = Vector3< real_t >( real_t(0.0) ),
                       const real_t rho = real_t(1.0) )
    {
-      using namespace stencil;
-      return get( real_c(cx[direction]), real_c(cy[direction]), real_c(cz[direction]),
-                  LatticeModel_T::w[ Stencil::idx[direction] ], velocity, rho );
+        {{equilibriumFromDirection}}
    }
 
    static real_t getSymmetricPart( const stencil::Direction direction,
-                                   const Vector3<real_t> & velocity = Vector3< real_t >(real_t(0.0)),
+                                   const Vector3<real_t> & u = Vector3< real_t >(real_t(0.0)),
                                    const real_t rho = real_t(1.0) )
    {
+        {{symmetricEquilibriumFromDirection}}
    }
 
    static real_t getAsymmetricPart( const stencil::Direction direction,
-                                    const Vector3< real_t > & velocity = Vector3<real_t>( real_t(0.0) ),
+                                    const Vector3< real_t > & u = Vector3<real_t>( real_t(0.0) ),
                                     const real_t rho = real_t(1.0) )
    {
+        {{asymmetricEquilibriumFromDirection}}
    }
 
-   static std::vector< real_t > get( const Vector3< real_t > & velocity = Vector3<real_t>( real_t(0.0) ),
+   static std::vector< real_t > get( const Vector3< real_t > & u = Vector3<real_t>( real_t(0.0) ),
                                      const real_t rho = real_t(1.0) )
    {
       std::vector< real_t > equilibrium( Stencil::Size );
-
+      for( auto d = Stencil::begin(); d != Stencil::end(); ++d )
+      {
+         equilibrium[d.toIdx()] = getEquilibrium(*d, u, rho);
+      }
       return equilibrium;
    }
 };
 
 
-
 template<>
 struct AdaptVelocityToForce<MyLatticeModel, void>
 {
+   //TODO support force fields
    template< typename FieldPtrOrIterator >
-   static Vector3<real_t> get( FieldPtrOrIterator & it, const LatticeModel_T & latticeModel, const Vector3< real_t > & velocity, const real_t )
+   static Vector3<real_t> get( FieldPtrOrIterator & it, const LatticeModel_T & latticeModel,
+                               const Vector3< real_t > & velocity, const real_t rho)
    {
-      return velocity - latticeModel.forceModel().force(it.x(),it.y(),it.z()) * real_t(0.5);
+      auto x = it.x();
+      auto y = it.y();
+      auto z = it.z();
+      {% if macroscopicVelocityShift %}
+      return velocity - Vector3<real_t>({{macroscopicVelocityShift | join(",") }});
+      {% else %}
+      return velocity;
+      {% endif %}
    }
 
-   static Vector3<real_t> get( const cell_idx_t x, const cell_idx_t y, const cell_idx_t z, const LatticeModel_T & latticeModel,
-                               const Vector3< real_t > & velocity, const real_t )
+   static Vector3<real_t> get( const cell_idx_t , const cell_idx_t , const cell_idx_t , const LatticeModel_T & latticeModel,
+                               const Vector3< real_t > & velocity, const real_t rho)
    {
-      return velocity - latticeModel.forceModel().force(x,y,z) * real_t(0.5);
+      {% if macroscopicVelocityShift %}
+      return velocity - Vector3<real_t>({{macroscopicVelocityShift | join(",") }});
+      {% else %}
+      return velocity;
+      {% endif %}
    }
 };
 
@@ -101,14 +125,23 @@ struct Equilibrium< MyLatticeModel, void >
 
    template< typename FieldPtrOrIterator >
    static void set( FieldPtrOrIterator & it,
-                    const Vector3< real_t > & velocity = Vector3< real_t >( real_t(0.0) ), const real_t rho = real_t(1.0) )
+                    const Vector3< real_t > & u = Vector3< real_t >( real_t(0.0) ), const real_t rho = real_t(1.0) )
    {
+       {% for eqTerm in equilibrium -%}
+          it[{{loop.index0 }}] = {{eqTerm}};
+       {% endfor -%}
+
    }
 
    template< typename PdfField_T >
    static void set( PdfField_T & pdf, const cell_idx_t x, const cell_idx_t y, const cell_idx_t z,
-                    const Vector3< real_t > & velocity = Vector3< real_t >( real_t(0.0) ), const real_t rho = real_t(1.0) )
+                    const Vector3< real_t > & u = Vector3< real_t >( real_t(0.0) ), const real_t rho = real_t(1.0) )
    {
+      real_t & xyz0 = pdf(x,y,z,0);
+      {% for eqTerm in equilibrium -%}
+         pdf.getF( &xyz0, {{loop.index0 }})= {{eqTerm}};
+      {% endfor -%}
+
    }
 };
 
@@ -119,39 +152,51 @@ struct Density<MyLatticeModel, void>
    template< typename FieldPtrOrIterator >
    static inline real_t get( const LatticeModel_T & , const FieldPtrOrIterator & it )
    {
+        {% for i in range(Q) -%}
+            const real_t f_{{i}} = it[{{i}}];
+        {% endfor -%}
+        {{densityOut | indent(8)}}
+        return rho;
    }
 
    template< typename PdfField_T >
    static inline real_t get( const LatticeModel_T & ,
                              const PdfField_T & pdf, const cell_idx_t x, const cell_idx_t y, const cell_idx_t z )
    {
+        const real_t & xyz0 = pdf(x,y,z,0);
+        {% for i in range(Q) -%}
+            const real_t f_{{i}} = pdf.getF( &xyz0, {{i}});
+        {% endfor -%}
+        {{densityOut | indent(8)}}
+        return rho;
    }
 };
+
 
 
 template<>
 struct DensityAndMomentumDensity<MyLatticeModel, void>
 {
    template< typename FieldPtrOrIterator >
-   static real_t getEquilibrium( Vector3< real_t > & momentumDensity, const LatticeModel_T & ,
+   static real_t getEquilibrium( Vector3< real_t > & momentumDensity, const LatticeModel_T & lm,
                                  const FieldPtrOrIterator & it )
    {
    }
 
    template< typename PdfField_T >
-   static real_t getEquilibrium( Vector3< real_t > & momentumDensity, const LatticeModel_T & ,
+   static real_t getEquilibrium( Vector3< real_t > & momentumDensity, const LatticeModel_T & lm,
                                  const PdfField_T & pdf, const cell_idx_t x, const cell_idx_t y, const cell_idx_t z )
    {
    }
 
    template< typename FieldPtrOrIterator >
-   static real_t get( Vector3< real_t > & momentumDensity, const LatticeModel_T & ,
+   static real_t get( Vector3< real_t > & momentumDensity, const LatticeModel_T & lm,
                       const FieldPtrOrIterator & it )
    {
    }
 
    template< typename PdfField_T >
-   static real_t get( Vector3< real_t > & momentumDensity, const LatticeModel_T & , const PdfField_T & pdf,
+   static real_t get( Vector3< real_t > & momentumDensity, const LatticeModel_T & lm, const PdfField_T & pdf,
                       const cell_idx_t x, const cell_idx_t y, const cell_idx_t z )
    {
    }

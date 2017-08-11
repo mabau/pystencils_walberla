@@ -61,7 +61,6 @@ def generateDefinition(ctx, kernelInfo):
 def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[]):
     """Generates code that either extracts the fields from a block or uses temporary fields that are swapped later"""
     ast = kernelInfo.ast
-    parametersToIgnore += kernelInfo.temporaryFields
     fields = {f.name: f for f in ast.fieldsAccessed}
     fieldAccesses = ast.atoms(ResolvedFieldAccess)
 
@@ -83,14 +82,17 @@ def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[]):
             return maxIdxValue
 
     result = []
+    toIgnore = parametersToIgnore.copy() + kernelInfo.temporaryFields
     for param in ast.parameters:
-        if param.isFieldPtrArgument and param.fieldName not in parametersToIgnore:
+        if param.isFieldPtrArgument and param.fieldName not in toIgnore:
             dType = getBaseType(param.dtype)
             fSize = getMaxIndexCoordinateForField(param.fieldName)
             result.append("auto %s = block->getData< %s >(%sID);" %
                           (param.fieldName, makeFieldType(dType, fSize), param.fieldName))
 
     for tmpFieldName in kernelInfo.temporaryFields:
+        if tmpFieldName in parametersToIgnore:
+            continue
         assert tmpFieldName.endswith('_tmp')
         originalFieldName = tmpFieldName[:-len('_tmp')]
         elementType = getBaseType(fields[originalFieldName].dtype)

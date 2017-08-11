@@ -10,6 +10,9 @@ from pystencils.gpucuda.kernelcreation import createCUDAKernel
 from pystencils_walberla.jinja_filters import addPystencilsFiltersToJinjaEnv
 
 
+KernelInfo = namedtuple("KernelInfo", ['ast', 'temporaryFields', 'fieldSwaps'])
+
+
 class Sweep:
     """
     Class to generate a waLBerla sweep from a pystencils kernel
@@ -84,7 +87,6 @@ class Sweep:
         env = Environment(loader=PackageLoader('pystencils_walberla'))
         addPystencilsFiltersToJinjaEnv(env)
 
-        KernelInfo = namedtuple("KernelInfo", ['ast', 'temporaryFields', 'fieldSwaps'])
 
         context = {
             'kernel': KernelInfo(ast, self._temporaryFields, self._fieldSwaps),
