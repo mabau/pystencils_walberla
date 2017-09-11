@@ -11,7 +11,6 @@ temporaryFieldTemplate = """
 // Getting temporary field {tmpFieldName}
 static std::set< {type} *, field::SwapableCompare< {type} * > > cache_{originalFieldName};
 auto it = cache_{originalFieldName}.find( {originalFieldName} );
-{type} * {tmpFieldName};
 if( it != cache_{originalFieldName}.end() )
 {{
     {tmpFieldName} = *it;
@@ -57,12 +56,95 @@ def generateDefinition(ctx, kernelInfo):
     return result
 
 
+def fieldExtractionCode(fieldAccesses, fieldName, isTemporary, declarationOnly=False, noDeclaration=False, isGpu=False):
+    """
+    Returns code string for getting a field pointer.
+    This can happen in two ways: either the field is extracted from a waLBerla block, or a temporary field to swap is
+    created.
+
+    :param fieldAccesses: set of Field.Access objects of a kernel
+    :param fieldName: the field name for which the code should be created
+    :param isTemporary: extract field from block (False) or create a temporary copy of an existing field (True)
+    :param declarationOnly: only create declaration instead of the full code
+    :param noDeclaration: create the extraction code, and assume that declarations are elsewhere
+    :param isGpu: if the field is a GhostLayerField or a GpuField
+    """
+    fields = {fa.field.name: fa.field for fa in fieldAccesses}
+    field = fields[fieldName]
+
+    def makeFieldType(dtype, fSize):
+        if isGpu:
+            return "cuda::GPUField<%s>" % (dtype,)
+        else:
+            return "GhostLayerField<%s, %d>" % (dtype, fSize)
+
+    # Determine size of f coordinate which is a template parameter
+    if field.indexDimensions == 0:
+        fSize = 1
+    else:
+        maxIdxValue = 0
+        for acc in fieldAccesses:
+            if acc.field == field and acc.idxCoordinateValues[0] > maxIdxValue:
+                maxIdxValue = acc.idxCoordinateValues[0]
+        fSize = maxIdxValue + 1
+
+    dtype = getBaseType(field.dtype)
+    fieldType = "cuda::GPUField<%s>" % (dtype,) if isGpu else "GhostLayerField<%s, %d>" % (dtype, fSize)
+
+    if not isTemporary:
+        dType = getBaseType(field.dtype)
+        fieldType = makeFieldType(dType, fSize)
+        if declarationOnly:
+            return "%s * %s;" % (fieldType, fieldName)
+        else:
+            prefix = "" if noDeclaration else "auto "
+            return "%s%s = block->getData< %s >(%sID);" % (prefix, fieldName, fieldType, fieldName)
+    else:
+        assert fieldName.endswith('_tmp')
+        originalFieldName = fieldName[:-len('_tmp')]
+        if declarationOnly:
+            return "%s * %s;" % (fieldType, fieldName)
+        else:
+            declaration = "{type} * {tmpFieldName};".format(type=fieldType, tmpFieldName=fieldName)
+            tmpFieldStr = temporaryFieldTemplate.format(originalFieldName=originalFieldName,
+                                                        tmpFieldName=fieldName,
+                                                        type=fieldType)
+            return tmpFieldStr if noDeclaration else declaration + tmpFieldStr
+
+
 @jinja2.contextfilter
-def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[]):
+def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[], parameters=None,
+                                       declarationsOnly=False, noDeclarations=False):
+    ast = kernelInfo.ast
+    fieldAccesses = ast.atoms(ResolvedFieldAccess)
+
+    if parameters is not None:
+        assert parametersToIgnore == []
+    else:
+        parameters = {p.fieldName for p in ast.parameters if p.isFieldPtrArgument}
+        parameters.difference_update(parametersToIgnore)
+
+    normal = {f for f in parameters if f not in kernelInfo.temporaryFields}
+    temporary = {f for f in parameters if f in kernelInfo.temporaryFields}
+
+    args = {
+        'fieldAccesses': fieldAccesses,
+        'declarationOnly': declarationsOnly,
+        'noDeclaration': noDeclarations,
+        'isGpu': ctx['target'] == 'gpu',
+    }
+    result = "\n".join(fieldExtractionCode(fieldName=fn, isTemporary=False, **args) for fn in normal) + "\n"
+    result += "\n".join(fieldExtractionCode(fieldName=fn, isTemporary=True, **args) for fn in temporary)
+    return result
+
+
+@jinja2.contextfilter
+def generateBlockDataToFieldExtractionOld(ctx, kernelInfo, parametersToIgnore=[],
+                                       declarationsOnly=False, noDeclarations=False):
     """Generates code that either extracts the fields from a block or uses temporary fields that are swapped later"""
     ast = kernelInfo.ast
-    fields = {f.name: f for f in ast.fieldsAccessed}
     fieldAccesses = ast.atoms(ResolvedFieldAccess)
+    fields = {f.name: f for f in fieldAccesses}
 
     def makeFieldType(dtype, fSize):
         if ctx['target'] == 'cpu':
@@ -79,7 +161,7 @@ def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[]):
             for acc in fieldAccesses:
                 if acc.field == field and acc.idxCoordinateValues[0] > maxIdxValue:
                     maxIdxValue = acc.idxCoordinateValues[0]
-            return maxIdxValue
+            return maxIdxValue + 1
 
     result = []
     toIgnore = parametersToIgnore.copy() + kernelInfo.temporaryFields
@@ -87,8 +169,13 @@ def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[]):
         if param.isFieldPtrArgument and param.fieldName not in toIgnore:
             dType = getBaseType(param.dtype)
             fSize = getMaxIndexCoordinateForField(param.fieldName)
-            result.append("auto %s = block->getData< %s >(%sID);" %
-                          (param.fieldName, makeFieldType(dType, fSize), param.fieldName))
+            fieldType = makeFieldType(dType, fSize)
+            if not declarationsOnly:
+                prefix = "" if noDeclarations else "auto "
+                result.append("%s%s = block->getData< %s >(%sID);" %
+                              (prefix, param.fieldName, fieldType, param.fieldName))
+            else:
+                result.append("%s * %s;" % (fieldType, param.fieldName))
 
     for tmpFieldName in kernelInfo.temporaryFields:
         if tmpFieldName in parametersToIgnore:
@@ -97,11 +184,27 @@ def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[]):
         originalFieldName = tmpFieldName[:-len('_tmp')]
         elementType = getBaseType(fields[originalFieldName].dtype)
         dtype = makeFieldType(elementType, getMaxIndexCoordinateForField(originalFieldName))
-        result.append(temporaryFieldTemplate.format(originalFieldName=originalFieldName,
-                                                    tmpFieldName=tmpFieldName,
-                                                    type=dtype))
+        if not declarationsOnly:
+            declaration = "{type} * {tmpFieldName};".format(type=dtype, tmpFieldName=tmpFieldName)
+            tmpFieldStr = temporaryFieldTemplate.format(originalFieldName=originalFieldName,
+                                                        tmpFieldName=tmpFieldName,
+                                                        type=dtype)
+            if noDeclarations:
+                result.append(tmpFieldStr)
+            else:
+                result.append(declaration)
+                result.append(tmpFieldStr)
+        else:
+            result.append("%s * %s;" % (dtype, tmpFieldName))
 
     return "\n".join(result)
+
+
+def generateRefsForKernelParameters(kernelInfo, prefix, parametersToIgnore):
+    symbols = {p.fieldName for p in kernelInfo.ast.parameters if p.isFieldPtrArgument}
+    symbols.update(p.name for p in kernelInfo.ast.parameters if not p.isFieldArgument)
+    symbols.difference_update(parametersToIgnore)
+    return "\n".join("auto & %s = %s%s;" % (s, prefix, s ) for s in symbols)
 
 
 @jinja2.contextfilter
@@ -225,4 +328,4 @@ def addPystencilsFiltersToJinjaEnv(jinjaEnv):
     jinjaEnv.filters['generateCall'] = generateCall
     jinjaEnv.filters['generateBlockDataToFieldExtraction'] = generateBlockDataToFieldExtraction
     jinjaEnv.filters['generateSwaps'] = generateSwaps
-
+    jinjaEnv.filters['generateRefsForKernelParameters'] = generateRefsForKernelParameters
