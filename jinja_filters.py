@@ -204,7 +204,7 @@ def generateRefsForKernelParameters(kernelInfo, prefix, parametersToIgnore):
     symbols = {p.fieldName for p in kernelInfo.ast.parameters if p.isFieldPtrArgument}
     symbols.update(p.name for p in kernelInfo.ast.parameters if not p.isFieldArgument)
     symbols.difference_update(parametersToIgnore)
-    return "\n".join("auto & %s = %s%s;" % (s, prefix, s ) for s in symbols)
+    return "\n".join("auto & %s = %s%s;" % (s, prefix, s) for s in symbols)
 
 
 @jinja2.contextfilter
@@ -221,8 +221,18 @@ def generateCall(ctx, kernelInfo):
 
     for param in ast.parameters:
         typeStr = getBaseType(param.dtype).baseName
+
         if param.isFieldPtrArgument:
-            kernelCallLines.append("%s %s = (%s *) %s->data();" % (param.dtype, param.name, typeStr, param.fieldName))
+            # Correction for non 3D fields - ghost layers in non-handled directions have to be skipped
+            # e.g. for 2D kernels the z ghost layers have to be skipped
+            field = fields[param.fieldName]
+            strideNames = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
+            ghostLayerOffsets = []
+            for i in range(field.spatialDimensions, 3):
+                ghostLayerOffsets.append("%s->%s" % (param.fieldName, strideNames[i]))
+            ghostLayerOffsetStr = " + " + " + ".join(ghostLayerOffsets) if ghostLayerOffsets else ""
+            kernelCallLines.append("%s %s = (%s *) (%s->data()) %s;" % (param.dtype, param.name, typeStr,
+                                                                       param.fieldName, ghostLayerOffsetStr))
         elif param.isFieldStrideArgument:
             strideNames = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
             strideNames = ["%s(%s->%s)" % (typeStr, param.fieldName, e) for e in strideNames]
