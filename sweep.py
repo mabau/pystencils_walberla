@@ -5,8 +5,6 @@ from collections import namedtuple
 from jinja2 import Environment, PackageLoader
 
 from pystencils import Field
-from pystencils.cpu import createKernel
-from pystencils.gpucuda.kernelcreation import createCUDAKernel
 from pystencils_walberla.jinja_filters import addPystencilsFiltersToJinjaEnv
 
 
@@ -80,8 +78,10 @@ class Sweep:
             target = 'cpu'
 
         if target == 'cpu':
+            from pystencils.cpu import createKernel
             ast = createKernel(self.eqs, functionName=fileName)
         elif target == 'gpu':
+            from pystencils.gpucuda.kernelcreation import createCUDAKernel
             ast = createCUDAKernel(self.eqs, functionName=fileName)
 
         env = Environment(loader=PackageLoader('pystencils_walberla'))
