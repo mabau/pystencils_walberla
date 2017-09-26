@@ -62,7 +62,7 @@ class Sweep:
         """Add an update equation to the pystencils kernel"""
         self.eqs.append(sp.Eq(lhs, rhs))
 
-    def generate(self, namespace="pystencils"):
+    def generate(self, namespace="pystencils", openMP=True):
         """Call this function at the end to generate the corresponding .cpp(.cu) and .h files"""
         scriptFileName = inspect.stack()[-1][1]
         if scriptFileName.endswith(".cuda.gen.py"):
@@ -78,8 +78,10 @@ class Sweep:
             target = 'cpu'
 
         if target == 'cpu':
-            from pystencils.cpu import createKernel
+            from pystencils.cpu import createKernel, addOpenMP
             ast = createKernel(self.eqs, functionName=fileName)
+            if openMP:
+                addOpenMP(ast, numThreads=openMP)
         elif target == 'gpu':
             from pystencils.gpucuda.kernelcreation import createCUDAKernel
             ast = createCUDAKernel(self.eqs, functionName=fileName)
