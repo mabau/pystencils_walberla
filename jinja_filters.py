@@ -208,9 +208,12 @@ def generateRefsForKernelParameters(kernelInfo, prefix, parametersToIgnore):
 
 
 @jinja2.contextfilter
-def generateCall(ctx, kernelInfo):
+def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
     """Generates the function call to a pystencils kernel"""
     ast = kernelInfo.ast
+
+    ghostLayersToInclude = sp.sympify(ghostLayersToInclude)
+    requiredGhostLayers = max(max(ast.ghostLayers))  # ghost layer info is ((xGlFront, xGlEnd), (yGlFront, yGlEnd).. )
 
     isCpu = ctx['target'] == 'cpu'
 
@@ -223,16 +226,16 @@ def generateCall(ctx, kernelInfo):
         typeStr = getBaseType(param.dtype).baseName
 
         if param.isFieldPtrArgument:
-            # Correction for non 3D fields - ghost layers in non-handled directions have to be skipped
-            # e.g. for 2D kernels the z ghost layers have to be skipped
             field = fields[param.fieldName]
-            strideNames = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
-            ghostLayerOffsets = []
-            for i in range(field.spatialDimensions, 3):
-                ghostLayerOffsets.append("%s->%s" % (param.fieldName, strideNames[i]))
-            ghostLayerOffsetStr = " + " + " + ".join(ghostLayerOffsets) if ghostLayerOffsets else ""
-            kernelCallLines.append("%s %s = (%s *) (%s->data()) %s;" % (param.dtype, param.name, typeStr,
-                                                                       param.fieldName, ghostLayerOffsetStr))
+            coordinates = [-ghostLayersToInclude - requiredGhostLayers] * field.spatialDimensions
+            while len(coordinates) < 4:
+                coordinates.append(0)
+
+            actualGls = sp.Symbol(param.fieldName + "->nrOfGhostLayers()") - ghostLayersToInclude
+            kernelCallLines.append("WALBERLA_CHECK_GREATER_EQUAL(%s, %s);" % (actualGls, requiredGhostLayers))
+            kernelCallLines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
+                                   ((param.dtype, param.name, param.fieldName) + tuple(coordinates)))
+
         elif param.isFieldStrideArgument:
             strideNames = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
             strideNames = ["%s(%s->%s)" % (typeStr, param.fieldName, e) for e in strideNames]
@@ -249,9 +252,10 @@ def generateCall(ctx, kernelInfo):
                                        % (param.name, param.name, len(strides), typeStr))
 
         elif param.isFieldShapeArgument:
-            shapeNames = ['xSizeWithGhostLayer()', 'ySizeWithGhostLayer()', 'zSizeWithGhostLayer()', 'fSize()']
+            offset = 2 * ghostLayersToInclude + 2 * requiredGhostLayers
+            shapeNames = ['xSize()', 'ySize()', 'zSize()', 'fSize()']
             typeStr = getBaseType(param.dtype).baseName
-            shapeNames = ["%s(%s->%s)" % (typeStr, param.fieldName, e) for e in shapeNames]
+            shapeNames = ["%s(%s->%s + %s)" % (typeStr, param.fieldName, e, offset) for e in shapeNames]
             field = fields[param.fieldName]
             shapes = shapeNames[:field.spatialDimensions]
 
