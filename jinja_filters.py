@@ -3,7 +3,7 @@ import jinja2
 import copy
 from pystencils.astnodes import ResolvedFieldAccess
 from pystencils.backends.cbackend import CustomSympyPrinter
-from pystencils.types import getBaseType
+from pystencils.data_types import getBaseType
 from pystencils.cpu import generateC
 
 
