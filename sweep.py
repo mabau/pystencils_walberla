@@ -1,41 +1,18 @@
 import sympy as sp
-import inspect
-import os
 from collections import namedtuple
 from jinja2 import Environment, PackageLoader
 
 from pystencils import Field
 from pystencils_walberla.jinja_filters import addPystencilsFiltersToJinjaEnv
-
+from pystencils.sympyextensions import getEquationsFromFunction
 
 KernelInfo = namedtuple("KernelInfo", ['ast', 'temporaryFields', 'fieldSwaps'])
 
 
 class Sweep:
-    """
-    Class to generate a waLBerla sweep from a pystencils kernel
-    
-    Example to generate a simple waLBerla sweep source-destination sweep that multiplies every
-    cell by a constant 'h'. 
-     
-    >>> k = Sweep(dim=3)
-    >>> src = k.field("f1")
-    >>> dst = k.temporaryField(src)
-    >>> h = k.constant("h")
-    >>> k.addEq(dst[0,0,0], src[0,0,0] * h)
-    >>> #k.generate()
-    
-    For a real scenario the generate function has to be called (this is just skipped in this doctest)
-    The snippet above should be located in a separate Python file that has one of the following endings
-     - .gen.py       to generate CPU code
-     - .cuda.gen.py  to generate CUDA code
-    
-    It then generates a two files with the same name but endings .cpp (.cu) and .h
-    """
     def __init__(self, dim=3, fSize=None):
         self.dim = dim
         self.fSize = fSize
-        self.eqs = []
         self._fieldSwaps = []
         self._temporaryFields = []
 
@@ -48,62 +25,51 @@ class Sweep:
         """Create a symbolic field that is passed to the sweep as BlockDataID"""
         # layout does not matter, since it is only used to determine order of spatial loops i.e. zyx, which is
         # always the same in waLBerla
-        return Field.createGeneric(name, spatialDimensions=self.dim, indexDimensions=1 if fSize else 0, layout='fzyx')
+        if self.dim is None:
+            raise ValueError("Set the dimension of the sweep first, e.g. sweep.dim=3")
+        return Field.createGeneric(name, spatialDimensions=self.dim, indexDimensions=1 if fSize else 0,
+                                   layout='fzyx', indexShape=(fSize,) if fSize else None)
 
-    def temporaryField(self, field):
+    def temporaryField(self, field, tmpFieldName=None):
         """Creates a temporary field as clone of field, which is swapped at the end of the sweep"""
-        tmpFieldName = field.name + "_tmp"
+        if tmpFieldName is None:
+            tmpFieldName = field.name + "_tmp"
         self._temporaryFields.append(tmpFieldName)
         self._fieldSwaps.append((tmpFieldName, field.name))
         return Field.createGeneric(tmpFieldName, spatialDimensions=field.spatialDimensions,
-                                   indexDimensions=field.indexDimensions, layout=field.layout)
+                                   indexDimensions=field.indexDimensions, layout=field.layout,
+                                   indexShape=field.indexShape)
 
-    def addEq(self, lhs, rhs):
-        """Add an update equation to the pystencils kernel"""
-        self.eqs.append(sp.Eq(lhs, rhs))
+    @staticmethod
+    def generate(name, sweep_function, namespace='pystencils', target='cpu',
+                 dim=None, fSize=None, openMP=True):
+        from pystencils_walberla.cmake_integration import codegen
+        sweep = Sweep(dim, fSize)
 
-    def generate(self, namespace="pystencils", openMP=True):
-        """Call this function at the end to generate the corresponding .cpp(.cu) and .h files"""
-        scriptFileName = inspect.stack()[-1][1]
-        if scriptFileName.endswith(".cuda.gen.py"):
-            fileName = scriptFileName[:-len(".cuda.gen.py")]
-            fileName = os.path.split(fileName)[1]
-            target = 'gpu'
-        elif scriptFileName.endswith(".gen.py"):
-            fileName = scriptFileName[:-len(".gen.py")]
-            fileName = os.path.split(fileName)[1]
-            target = 'cpu'
-        else:
-            fileName = "GeneratedKernel"
-            target = 'cpu'
+        def generateHeaderAndSource():
+            eqs = getEquationsFromFunction(sweep_function, sweep=sweep)
+            if target == 'cpu':
+                from pystencils.cpu import createKernel, addOpenMP
+                ast = createKernel(eqs, functionName=name)
+                if openMP:
+                    addOpenMP(ast, numThreads=openMP)
+            elif target == 'gpu':
+                from pystencils.gpucuda.kernelcreation import createCUDAKernel
+                ast = createCUDAKernel(eqs, functionName=name)
 
-        if target == 'cpu':
-            from pystencils.cpu import createKernel, addOpenMP
-            ast = createKernel(self.eqs, functionName=fileName)
-            if openMP:
-                addOpenMP(ast, numThreads=openMP)
-        elif target == 'gpu':
-            from pystencils.gpucuda.kernelcreation import createCUDAKernel
-            ast = createCUDAKernel(self.eqs, functionName=fileName)
+            env = Environment(loader=PackageLoader('pystencils_walberla'))
+            addPystencilsFiltersToJinjaEnv(env)
 
-        env = Environment(loader=PackageLoader('pystencils_walberla'))
-        addPystencilsFiltersToJinjaEnv(env)
+            context = {
+                'kernel': KernelInfo(ast, sweep._temporaryFields, sweep._fieldSwaps),
+                'namespace': namespace,
+                'className': ast.functionName[0].upper() + ast.functionName[1:],
+                'target': target,
+            }
 
+            header = env.get_template("Sweep.tmpl.h").render(**context)
+            source = env.get_template("Sweep.tmpl.cpp").render(**context)
+            return header, source
 
-        context = {
-            'kernel': KernelInfo(ast, self._temporaryFields, self._fieldSwaps),
-            'namespace': namespace,
-            'className': ast.functionName[0].upper() + ast.functionName[1:],
-            'target': target,
-        }
-
-        with open(fileName + ".h", 'w') as f:
-            content = env.get_template("Sweep.tmpl.h").render(**context)
-            f.write(content)
-
-        suffix = '.cu' if target == 'gpu' else '.cpp'
-        with open(fileName + suffix, 'w') as f:
-            content = env.get_template("Sweep.tmpl.cpp").render(**context)
-            f.write(content)
-
-
+        fileNames = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
+        codegen.register(fileNames, generateHeaderAndSource)

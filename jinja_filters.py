@@ -52,7 +52,7 @@ def generateDefinition(ctx, kernelInfo):
         prefix = ""
 
     result = generateC(ast)
-    result = "namespace internal {\n%s\n%s\n}" % (prefix, result)
+    result = "namespace internal {\n%s\nstatic %s\n}" % (prefix, result)
     return result
 
 
@@ -79,7 +79,10 @@ def fieldExtractionCode(fieldAccesses, fieldName, isTemporary, declarationOnly=F
             return "GhostLayerField<%s, %d>" % (dtype, fSize)
 
     # Determine size of f coordinate which is a template parameter
-    if field.indexDimensions == 0:
+    assert field.indexDimensions <= 1
+    if field.hasFixedIndexShape and field.indexDimensions > 0:
+        fSize = field.indexShape[0]
+    elif field.indexDimensions == 0:
         fSize = 1
     else:
         maxIdxValue = 0
@@ -138,68 +141,6 @@ def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[], p
     return result
 
 
-@jinja2.contextfilter
-def generateBlockDataToFieldExtractionOld(ctx, kernelInfo, parametersToIgnore=[],
-                                       declarationsOnly=False, noDeclarations=False):
-    """Generates code that either extracts the fields from a block or uses temporary fields that are swapped later"""
-    ast = kernelInfo.ast
-    fieldAccesses = ast.atoms(ResolvedFieldAccess)
-    fields = {f.name: f for f in fieldAccesses}
-
-    def makeFieldType(dtype, fSize):
-        if ctx['target'] == 'cpu':
-            return "GhostLayerField<%s, %d>" % (dtype, fSize)
-        else:
-            return "cuda::GPUField<%s>" % (dtype,)
-
-    def getMaxIndexCoordinateForField(fieldName):
-        field = fields[fieldName]
-        if field.indexDimensions == 0:
-            return 1
-        else:
-            maxIdxValue = 0
-            for acc in fieldAccesses:
-                if acc.field == field and acc.idxCoordinateValues[0] > maxIdxValue:
-                    maxIdxValue = acc.idxCoordinateValues[0]
-            return maxIdxValue + 1
-
-    result = []
-    toIgnore = parametersToIgnore.copy() + kernelInfo.temporaryFields
-    for param in ast.parameters:
-        if param.isFieldPtrArgument and param.fieldName not in toIgnore:
-            dType = getBaseType(param.dtype)
-            fSize = getMaxIndexCoordinateForField(param.fieldName)
-            fieldType = makeFieldType(dType, fSize)
-            if not declarationsOnly:
-                prefix = "" if noDeclarations else "auto "
-                result.append("%s%s = block->getData< %s >(%sID);" %
-                              (prefix, param.fieldName, fieldType, param.fieldName))
-            else:
-                result.append("%s * %s;" % (fieldType, param.fieldName))
-
-    for tmpFieldName in kernelInfo.temporaryFields:
-        if tmpFieldName in parametersToIgnore:
-            continue
-        assert tmpFieldName.endswith('_tmp')
-        originalFieldName = tmpFieldName[:-len('_tmp')]
-        elementType = getBaseType(fields[originalFieldName].dtype)
-        dtype = makeFieldType(elementType, getMaxIndexCoordinateForField(originalFieldName))
-        if not declarationsOnly:
-            declaration = "{type} * {tmpFieldName};".format(type=dtype, tmpFieldName=tmpFieldName)
-            tmpFieldStr = temporaryFieldTemplate.format(originalFieldName=originalFieldName,
-                                                        tmpFieldName=tmpFieldName,
-                                                        type=dtype)
-            if noDeclarations:
-                result.append(tmpFieldStr)
-            else:
-                result.append(declaration)
-                result.append(tmpFieldStr)
-        else:
-            result.append("%s * %s;" % (dtype, tmpFieldName))
-
-    return "\n".join(result)
-
-
 def generateRefsForKernelParameters(kernelInfo, prefix, parametersToIgnore):
     symbols = {p.fieldName for p in kernelInfo.ast.parameters if p.isFieldPtrArgument}
     symbols.update(p.name for p in kernelInfo.ast.parameters if not p.isFieldArgument)
@@ -213,7 +154,10 @@ def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
     ast = kernelInfo.ast
 
     ghostLayersToInclude = sp.sympify(ghostLayersToInclude)
-    requiredGhostLayers = max(max(ast.ghostLayers))  # ghost layer info is ((xGlFront, xGlEnd), (yGlFront, yGlEnd).. )
+    if ast.ghostLayers is None:
+        requiredGhostLayers = 0
+    else:
+        requiredGhostLayers = max(max(ast.ghostLayers))  # ghost layer info is ((xGlFront, xGlEnd), (yGlFront, yGlEnd).. )
 
     isCpu = ctx['target'] == 'cpu'
 
@@ -223,7 +167,8 @@ def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
     spatialShapeSymbols = []
 
     for param in ast.parameters:
-        typeStr = getBaseType(param.dtype).baseName
+        if param.isFieldArgument and fields[param.fieldName].isIndexField:
+            continue
 
         if param.isFieldPtrArgument:
             field = fields[param.fieldName]
@@ -232,11 +177,13 @@ def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
                 coordinates.append(0)
 
             actualGls = sp.Symbol(param.fieldName + "->nrOfGhostLayers()") - ghostLayersToInclude
-            kernelCallLines.append("WALBERLA_CHECK_GREATER_EQUAL(%s, %s);" % (actualGls, requiredGhostLayers))
+            if requiredGhostLayers > 0:
+                kernelCallLines.append("WALBERLA_CHECK_GREATER_EQUAL(%s, %s);" % (actualGls, requiredGhostLayers))
             kernelCallLines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
                                    ((param.dtype, param.name, param.fieldName) + tuple(coordinates)))
 
         elif param.isFieldStrideArgument:
+            typeStr = getBaseType(param.dtype).baseName
             strideNames = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
             strideNames = ["%s(%s->%s)" % (typeStr, param.fieldName, e) for e in strideNames]
             field = fields[param.fieldName]
