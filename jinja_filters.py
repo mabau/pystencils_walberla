@@ -5,6 +5,7 @@ from pystencils.astnodes import ResolvedFieldAccess
 from pystencils.backends.cbackend import CustomSympyPrinter
 from pystencils.data_types import getBaseType
 from pystencils.cpu import generateC
+from pystencils.field import FieldType
 
 
 temporaryFieldTemplate = """
@@ -167,7 +168,7 @@ def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
     spatialShapeSymbols = []
 
     for param in ast.parameters:
-        if param.isFieldArgument and fields[param.fieldName].isIndexField:
+        if param.isFieldArgument and FieldType.isIndexed(fields[param.fieldName]):
             continue
 
         if param.isFieldPtrArgument:
