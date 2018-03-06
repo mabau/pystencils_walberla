@@ -73,3 +73,37 @@ class Sweep:
 
         fileNames = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
         codegen.register(fileNames, generateHeaderAndSource)
+
+    @staticmethod
+    def generateFromEquations(name, function_returning_equations, temporaryFields=[], fieldSwaps=[],
+                              namespace="pystencils", target='cpu', openMP=True, **kwargs):
+        from pystencils_walberla.cmake_integration import codegen
+
+        def generateHeaderAndSource():
+            eqs = function_returning_equations(**kwargs)
+
+            if target == 'cpu':
+                from pystencils.cpu import createKernel, addOpenMP
+                ast = createKernel(eqs, functionName=name)
+                if openMP:
+                    addOpenMP(ast, numThreads=openMP)
+            elif target == 'gpu':
+                from pystencils.gpucuda.kernelcreation import createCUDAKernel
+                ast = createCUDAKernel(eqs, functionName=name)
+
+            env = Environment(loader=PackageLoader('pystencils_walberla'))
+            addPystencilsFiltersToJinjaEnv(env)
+
+            context = {
+                'kernel': KernelInfo(ast, temporaryFields, fieldSwaps),
+                'namespace': namespace,
+                'className': ast.functionName[0].upper() + ast.functionName[1:],
+                'target': target,
+            }
+
+            header = env.get_template("Sweep.tmpl.h").render(**context)
+            source = env.get_template("Sweep.tmpl.cpp").render(**context)
+            return header, source
+
+        fileNames = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
+        codegen.register(fileNames, generateHeaderAndSource)
