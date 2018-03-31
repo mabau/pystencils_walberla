@@ -65,7 +65,7 @@ def fieldExtractionCode(fieldAccesses, fieldName, isTemporary, declarationOnly=F
 
     :param fieldAccesses: set of Field.Access objects of a kernel
     :param fieldName: the field name for which the code should be created
-    :param isTemporary: extract field from block (False) or create a temporary copy of an existing field (True)
+    :param isTemporary: new_filtered field from block (False) or create a temporary copy of an existing field (True)
     :param declarationOnly: only create declaration instead of the full code
     :param noDeclaration: create the extraction code, and assume that declarations are elsewhere
     :param isGpu: if the field is a GhostLayerField or a GpuField

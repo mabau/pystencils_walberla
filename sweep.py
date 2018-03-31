@@ -4,7 +4,7 @@ from jinja2 import Environment, PackageLoader
 
 from pystencils import Field
 from pystencils_walberla.jinja_filters import addPystencilsFiltersToJinjaEnv
-from pystencils.sympyextensions import getEquationsFromFunction
+from pystencils.sympyextensions import assignments_from_python_function
 
 KernelInfo = namedtuple("KernelInfo", ['ast', 'temporaryFields', 'fieldSwaps'])
 
@@ -47,7 +47,7 @@ class Sweep:
         sweep = Sweep(dim, fSize)
 
         def generateHeaderAndSource():
-            eqs = getEquationsFromFunction(sweep_function, sweep=sweep)
+            eqs = assignments_from_python_function(sweep_function, sweep=sweep)
             if target == 'cpu':
                 from pystencils.cpu import createKernel, addOpenMP
                 ast = createKernel(eqs, functionName=name)
