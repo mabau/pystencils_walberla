@@ -3,8 +3,8 @@ import jinja2
 import copy
 from pystencils.astnodes import ResolvedFieldAccess
 from pystencils.backends.cbackend import CustomSympyPrinter
-from pystencils.data_types import getBaseType
-from pystencils.cpu import generateC
+from pystencils.data_types import get_base_type
+from pystencils.cpu import print_c
 from pystencils.field import FieldType
 
 
@@ -33,7 +33,7 @@ def generateDeclaration(ctx, kernelInfo):
         paramsInConstantMem = [p for p in ast.parameters if p.isFieldStrideArgument or p.isFieldShapeArgument]
         ast.globalVariables.update([p.name for p in paramsInConstantMem])
 
-    result = generateC(ast, signatureOnly=True) + ";"
+    result = print_c(ast, signature_only=True) + ";"
     result = "namespace internal {\n%s\n}" % (result,)
     return result
 
@@ -47,12 +47,12 @@ def generateDefinition(ctx, kernelInfo):
         paramsInConstantMem = [p for p in ast.parameters if p.isFieldStrideArgument or p.isFieldShapeArgument]
         ast = copy.deepcopy(ast)
         ast.globalVariables.update([p.symbol for p in paramsInConstantMem])
-        prefix = ["__constant__ %s %s[4];" % (getBaseType(p.dtype).baseName, p.name) for p in paramsInConstantMem]
+        prefix = ["__constant__ %s %s[4];" % (get_base_type(p.dtype).base_name, p.name) for p in paramsInConstantMem]
         prefix = "\n".join(prefix)
     else:
         prefix = ""
 
-    result = generateC(ast)
+    result = print_c(ast)
     result = "namespace internal {\n%s\nstatic %s\n}" % (prefix, result)
     return result
 
@@ -92,11 +92,11 @@ def fieldExtractionCode(fieldAccesses, fieldName, isTemporary, declarationOnly=F
                 maxIdxValue = acc.idxCoordinateValues[0]
         fSize = maxIdxValue + 1
 
-    dtype = getBaseType(field.dtype)
+    dtype = get_base_type(field.dtype)
     fieldType = "cuda::GPUField<%s>" % (dtype,) if isGpu else "GhostLayerField<%s, %d>" % (dtype, fSize)
 
     if not isTemporary:
-        dType = getBaseType(field.dtype)
+        dType = get_base_type(field.dtype)
         fieldType = makeFieldType(dType, fSize)
         if declarationOnly:
             return "%s * %s;" % (fieldType, fieldName)
@@ -163,7 +163,7 @@ def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
     isCpu = ctx['target'] == 'cpu'
 
     kernelCallLines = []
-    fields = {f.name: f for f in ast.fieldsAccessed}
+    fields = {f.name: f for f in ast.fields_accessed}
 
     spatialShapeSymbols = []
 
@@ -184,7 +184,7 @@ def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
                                    ((param.dtype, param.name, param.fieldName) + tuple(coordinates)))
 
         elif param.isFieldStrideArgument:
-            typeStr = getBaseType(param.dtype).baseName
+            typeStr = get_base_type(param.dtype).base_name
             strideNames = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
             strideNames = ["%s(%s->%s)" % (typeStr, param.fieldName, e) for e in strideNames]
             field = fields[param.fieldName]
@@ -202,7 +202,7 @@ def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
         elif param.isFieldShapeArgument:
             offset = 2 * ghostLayersToInclude + 2 * requiredGhostLayers
             shapeNames = ['xSize()', 'ySize()', 'zSize()', 'fSize()']
-            typeStr = getBaseType(param.dtype).baseName
+            typeStr = get_base_type(param.dtype).base_name
             shapeNames = ["%s(%s->%s + %s)" % (typeStr, param.fieldName, e, offset) for e in shapeNames]
             field = fields[param.fieldName]
             shapes = shapeNames[:field.spatialDimensions]
