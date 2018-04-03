@@ -22,7 +22,7 @@
 
 #include "core/DataTypes.h"
 #include "core/Macros.h"
-#include "{{className}}.h"
+#include "{{class_name}}.h"
 
 
 {% if target is equalto 'cpu' -%}
@@ -36,14 +36,14 @@ using namespace std;
 namespace walberla {
 namespace {{namespace}} {
 
-{{kernel|generateDefinition}}
+{{kernel|generate_definition}}
 
 
-void {{className}}::operator() ( IBlock * block )
+void {{class_name}}::operator() ( IBlock * block )
 {
-    {{kernel|generateBlockDataToFieldExtraction|indent(4)}}
-    {{kernel|generateCall|indent(4)}}
-    {{kernel|generateSwaps|indent(4)}}
+    {{kernel|generate_block_data_to_field_extraction|indent(4)}}
+    {{kernel|generate_call|indent(4)}}
+    {{kernel|generate_swaps|indent(4)}}
 }
 
 } // namespace {{namespace}}

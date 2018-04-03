@@ -46,14 +46,14 @@ namespace {{namespace}} {
 class {{className}}
 {
 public:
-    {{className}}( {{kernel|generateConstructorParameters}} )
-        : {{ kernel|generateConstructorInitializerList }}
+    {{className}}( {{kernel|generate_constructor_parameters}} )
+        : {{ kernel|generate_constructor_initializer_list }}
     {};
 
     void operator() ( IBlock * block );
 
 private:
-    {{kernel|generateMembers|indent(4)}}
+    {{kernel|generate_members|indent(4)}}
 };
 
 

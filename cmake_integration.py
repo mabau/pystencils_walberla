@@ -18,17 +18,17 @@ class CodeGeneratorCMakeIntegration:
     def __init__(self):
         self._registeredGenerators = []
 
-    def register(self, files, generationFunction):
+    def register(self, files, generation_function):
         """
         Register function that generates on or more source files
         :param files: paths of files to generate
-        :param generationFunction: function that returns a tuple of string with the file contents
+        :param generation_function: function that returns a tuple of string with the file contents
                                    returned tuple has to have as many entries as files
         """
-        self._registeredGenerators.append((files, generationFunction))
+        self._registeredGenerators.append((files, generation_function))
 
     @property
-    def generatedFiles(self):
+    def generated_files(self):
         return sum((e[0] for e in self._registeredGenerators), [])
 
     def generate(self):
@@ -44,12 +44,12 @@ codegen = CodeGeneratorCMakeIntegration()
 
 
 def main():
-    from pystencils.gpucuda.indexing import AUTO_BLOCKSIZE_LIMITING
+    from pystencils.gpucuda.indexing import AUTO_BLOCK_SIZE_LIMITING
 
     # prevent automatic block size detection of CUDA generation module
     # this would import pycuda, which might not be available, and if it is available problems occur
     # since we use atexit and pycuda does as well, leading to a tear-down problem
-    previousBlockSizeLimitingState = AUTO_BLOCKSIZE_LIMITING
+    previous_block_size_limiting_state = AUTO_BLOCK_SIZE_LIMITING
     AUTO_BLOCKSIZE_LIMITING = False
 
     parser = ArgumentParser()
@@ -60,12 +60,12 @@ def main():
 
     args = parser.parse_args()
     if args.list_output_files:
-        print(";".join(codegen.generatedFiles))
+        print(";".join(codegen.generated_files))
     elif args.generate:
         codegen.generate()
     else:
         parser.print_help()
-    AUTO_BLOCKSIZE_LIMITING = previousBlockSizeLimitingState
+    AUTO_BLOCKSIZE_LIMITING = previous_block_size_limiting_state
 
 
 atexit.register(main)

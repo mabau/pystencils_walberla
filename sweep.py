@@ -3,16 +3,16 @@ from collections import namedtuple
 from jinja2 import Environment, PackageLoader
 
 from pystencils import Field
-from pystencils_walberla.jinja_filters import addPystencilsFiltersToJinjaEnv
+from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
 from pystencils.sympyextensions import assignments_from_python_function
 
 KernelInfo = namedtuple("KernelInfo", ['ast', 'temporaryFields', 'fieldSwaps'])
 
 
 class Sweep:
-    def __init__(self, dim=3, fSize=None):
+    def __init__(self, dim=3, f_size=None):
         self.dim = dim
-        self.fSize = fSize
+        self.fSize = f_size
         self._fieldSwaps = []
         self._temporaryFields = []
 
@@ -21,49 +21,49 @@ class Sweep:
         """Create a symbolic constant that is passed to the sweep as a parameter"""
         return sp.Symbol(name)
 
-    def field(self, name, fSize=None):
+    def field(self, name, f_size=None):
         """Create a symbolic field that is passed to the sweep as BlockDataID"""
         # layout does not matter, since it is only used to determine order of spatial loops i.e. zyx, which is
         # always the same in waLBerla
         if self.dim is None:
             raise ValueError("Set the dimension of the sweep first, e.g. sweep.dim=3")
-        return Field.createGeneric(name, spatialDimensions=self.dim, indexDimensions=1 if fSize else 0,
-                                   layout='fzyx', indexShape=(fSize,) if fSize else None)
+        return Field.create_generic(name, spatial_dimensions=self.dim, index_dimensions=1 if f_size else 0,
+                                    layout='fzyx', index_shape=(f_size,) if f_size else None)
 
-    def temporaryField(self, field, tmpFieldName=None):
+    def temporary_field(self, field, tmp_field_name=None):
         """Creates a temporary field as clone of field, which is swapped at the end of the sweep"""
-        if tmpFieldName is None:
-            tmpFieldName = field.name + "_tmp"
-        self._temporaryFields.append(tmpFieldName)
-        self._fieldSwaps.append((tmpFieldName, field.name))
-        return Field.createGeneric(tmpFieldName, spatialDimensions=field.spatialDimensions,
-                                   indexDimensions=field.indexDimensions, layout=field.layout,
-                                   indexShape=field.indexShape)
+        if tmp_field_name is None:
+            tmp_field_name = field.name + "_tmp"
+        self._temporaryFields.append(tmp_field_name)
+        self._fieldSwaps.append((tmp_field_name, field.name))
+        return Field.create_generic(tmp_field_name, spatial_dimensions=field.spatial_dimensions,
+                                    index_dimensions=field.index_dimensions, layout=field.layout,
+                                    index_shape=field.index_shape)
 
     @staticmethod
     def generate(name, sweep_function, namespace='pystencils', target='cpu',
-                 dim=None, fSize=None, openMP=True):
+                 dim=None, f_size=None, openmp=True):
         from pystencils_walberla.cmake_integration import codegen
-        sweep = Sweep(dim, fSize)
+        sweep = Sweep(dim, f_size)
 
-        def generateHeaderAndSource():
+        def generate_header_and_source():
             eqs = assignments_from_python_function(sweep_function, sweep=sweep)
             if target == 'cpu':
-                from pystencils.cpu import createKernel, addOpenMP
-                ast = createKernel(eqs, functionName=name)
-                if openMP:
-                    addOpenMP(ast, numThreads=openMP)
+                from pystencils.cpu import create_kernel, add_openmp
+                ast = create_kernel(eqs, function_name=name)
+                if openmp:
+                    add_openmp(ast, num_threads=openmp)
             elif target == 'gpu':
-                from pystencils.gpucuda.kernelcreation import createCUDAKernel
-                ast = createCUDAKernel(eqs, functionName=name)
+                from pystencils.gpucuda.kernelcreation import create_cuda_kernel
+                ast = create_cuda_kernel(eqs, function_name=name)
 
             env = Environment(loader=PackageLoader('pystencils_walberla'))
-            addPystencilsFiltersToJinjaEnv(env)
+            add_pystencils_filters_to_jinja_env(env)
 
             context = {
                 'kernel': KernelInfo(ast, sweep._temporaryFields, sweep._fieldSwaps),
                 'namespace': namespace,
-                'className': ast.functionName[0].upper() + ast.functionName[1:],
+                'className': ast.function_name[0].upper() + ast.function_name[1:],
                 'target': target,
             }
 
@@ -71,33 +71,33 @@ class Sweep:
             source = env.get_template("Sweep.tmpl.cpp").render(**context)
             return header, source
 
-        fileNames = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
-        codegen.register(fileNames, generateHeaderAndSource)
+        file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
+        codegen.register(file_names, generate_header_and_source)
 
     @staticmethod
-    def generateFromEquations(name, function_returning_equations, temporaryFields=[], fieldSwaps=[],
-                              namespace="pystencils", target='cpu', openMP=True, **kwargs):
+    def generate_from_equations(name, function_returning_equations, temporary_fields=[], field_swaps=[],
+                                namespace="pystencils", target='cpu', openmp=True, **kwargs):
         from pystencils_walberla.cmake_integration import codegen
 
-        def generateHeaderAndSource():
+        def generate_header_and_source():
             eqs = function_returning_equations(**kwargs)
 
             if target == 'cpu':
-                from pystencils.cpu import createKernel, addOpenMP
-                ast = createKernel(eqs, functionName=name)
-                if openMP:
-                    addOpenMP(ast, numThreads=openMP)
+                from pystencils.cpu import create_kernel, add_openmp
+                ast = create_kernel(eqs, function_name=name)
+                if openmp:
+                    add_openmp(ast, num_threads=openmp)
             elif target == 'gpu':
-                from pystencils.gpucuda.kernelcreation import createCUDAKernel
-                ast = createCUDAKernel(eqs, functionName=name)
+                from pystencils.gpucuda.kernelcreation import create_cuda_kernel
+                ast = create_cuda_kernel(eqs, function_name=name)
 
             env = Environment(loader=PackageLoader('pystencils_walberla'))
-            addPystencilsFiltersToJinjaEnv(env)
+            add_pystencils_filters_to_jinja_env(env)
 
             context = {
-                'kernel': KernelInfo(ast, temporaryFields, fieldSwaps),
+                'kernel': KernelInfo(ast, temporary_fields, field_swaps),
                 'namespace': namespace,
-                'className': ast.functionName[0].upper() + ast.functionName[1:],
+                'className': ast.function_name[0].upper() + ast.function_name[1:],
                 'target': target,
             }
 
@@ -105,5 +105,5 @@ class Sweep:
             source = env.get_template("Sweep.tmpl.cpp").render(**context)
             return header, source
 
-        fileNames = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
-        codegen.register(fileNames, generateHeaderAndSource)
+        file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
+        codegen.register(file_names, generate_header_and_source)

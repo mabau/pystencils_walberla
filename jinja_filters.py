@@ -4,290 +4,292 @@ import copy
 from pystencils.astnodes import ResolvedFieldAccess
 from pystencils.backends.cbackend import CustomSympyPrinter
 from pystencils.data_types import get_base_type
-from pystencils.cpu import print_c
+from pystencils.cpu import generate_c
 from pystencils.field import FieldType
 
 
 temporaryFieldTemplate = """
-// Getting temporary field {tmpFieldName}
-static std::set< {type} *, field::SwapableCompare< {type} * > > cache_{originalFieldName};
-auto it = cache_{originalFieldName}.find( {originalFieldName} );
-if( it != cache_{originalFieldName}.end() )
+// Getting temporary field {tmp_field_name}
+static std::set< {type} *, field::SwapableCompare< {type} * > > cache_{original_field_name};
+auto it = cache_{original_field_name}.find( {original_field_name} );
+if( it != cache_{original_field_name}.end() )
 {{
-    {tmpFieldName} = *it;
+    {tmp_field_name} = *it;
 }}
 else 
 {{
-    {tmpFieldName} = {originalFieldName}->cloneUninitialized();
-    cache_{originalFieldName}.insert({tmpFieldName});
+    {tmp_field_name} = {original_field_name}->cloneUninitialized();
+    cache_{original_field_name}.insert({tmp_field_name});
 }}
 """
 
 
 @jinja2.contextfilter
-def generateDeclaration(ctx, kernelInfo):
+def generate_declaration(ctx, kernel_info):
     """Generates the declaration of the kernel function"""
-    isGpu = ctx['target'] == 'gpu'
-    ast = kernelInfo.ast
-    if isGpu:
-        paramsInConstantMem = [p for p in ast.parameters if p.isFieldStrideArgument or p.isFieldShapeArgument]
-        ast.globalVariables.update([p.name for p in paramsInConstantMem])
+    is_gpu = ctx['target'] == 'gpu'
+    ast = kernel_info.ast
+    if is_gpu:
+        params_in_constant_mem = [p for p in ast.parameters if p.isFieldStrideArgument or p.isFieldShapeArgument]
+        ast.globalVariables.update([p.name for p in params_in_constant_mem])
 
-    result = print_c(ast, signature_only=True) + ";"
+    result = generate_c(ast, signature_only=True) + ";"
     result = "namespace internal {\n%s\n}" % (result,)
     return result
 
 
 @jinja2.contextfilter
-def generateDefinition(ctx, kernelInfo):
+def generate_definition(ctx, kernel_info):
     """Generates the definition (i.e. implementation) of the kernel function"""
-    isGpu = ctx['target'] == 'gpu'
-    ast = kernelInfo.ast
-    if isGpu:
-        paramsInConstantMem = [p for p in ast.parameters if p.isFieldStrideArgument or p.isFieldShapeArgument]
+    is_gpu = ctx['target'] == 'gpu'
+    ast = kernel_info.ast
+    if is_gpu:
+        params_in_constant_mem = [p for p in ast.parameters if p.isFieldStrideArgument or p.isFieldShapeArgument]
         ast = copy.deepcopy(ast)
-        ast.globalVariables.update([p.symbol for p in paramsInConstantMem])
-        prefix = ["__constant__ %s %s[4];" % (get_base_type(p.dtype).base_name, p.name) for p in paramsInConstantMem]
+        ast.globalVariables.update([p.symbol for p in params_in_constant_mem])
+        prefix = ["__constant__ %s %s[4];" % (get_base_type(p.dtype).base_name, p.name) for p in params_in_constant_mem]
         prefix = "\n".join(prefix)
     else:
         prefix = ""
 
-    result = print_c(ast)
+    result = generate_c(ast)
     result = "namespace internal {\n%s\nstatic %s\n}" % (prefix, result)
     return result
 
 
-def fieldExtractionCode(fieldAccesses, fieldName, isTemporary, declarationOnly=False, noDeclaration=False, isGpu=False):
-    """
-    Returns code string for getting a field pointer.
-    This can happen in two ways: either the field is extracted from a waLBerla block, or a temporary field to swap is
+def field_extraction_code(field_accesses, field_name, is_temporary, declaration_only=False,
+                          no_declaration=False, is_gpu=False):
+    """Returns code string for getting a field pointer.
+
+    This can happen in two ways: either the field is extracted from a walberla block, or a temporary field to swap is
     created.
 
-    :param fieldAccesses: set of Field.Access objects of a kernel
-    :param fieldName: the field name for which the code should be created
-    :param isTemporary: new_filtered field from block (False) or create a temporary copy of an existing field (True)
-    :param declarationOnly: only create declaration instead of the full code
-    :param noDeclaration: create the extraction code, and assume that declarations are elsewhere
-    :param isGpu: if the field is a GhostLayerField or a GpuField
+    Args:
+        field_accesses: set of Field.Access objects of a kernel
+        field_name: the field name for which the code should be created
+        is_temporary: new_filtered field from block (False) or create a temporary copy of an existing field (True)
+        declaration_only: only create declaration instead of the full code
+        no_declaration: create the extraction code, and assume that declarations are elsewhere
+        is_gpu: if the field is a GhostLayerField or a GpuField
     """
-    fields = {fa.field.name: fa.field for fa in fieldAccesses}
-    field = fields[fieldName]
+    fields = {fa.field.name: fa.field for fa in field_accesses}
+    field = fields[field_name]
 
-    def makeFieldType(dtype, fSize):
-        if isGpu:
+    def make_field_type(dtype, f_size):
+        if is_gpu:
             return "cuda::GPUField<%s>" % (dtype,)
         else:
-            return "GhostLayerField<%s, %d>" % (dtype, fSize)
+            return "GhostLayerField<%s, %d>" % (dtype, f_size)
 
     # Determine size of f coordinate which is a template parameter
-    assert field.indexDimensions <= 1
-    if field.hasFixedIndexShape and field.indexDimensions > 0:
-        fSize = field.indexShape[0]
-    elif field.indexDimensions == 0:
-        fSize = 1
+    assert field.index_dimensions <= 1
+    if field.has_fixed_index_shape and field.index_dimensions > 0:
+        f_size = field.index_shape[0]
+    elif field.index_dimensions == 0:
+        f_size = 1
     else:
-        maxIdxValue = 0
-        for acc in fieldAccesses:
-            if acc.field == field and acc.idxCoordinateValues[0] > maxIdxValue:
-                maxIdxValue = acc.idxCoordinateValues[0]
-        fSize = maxIdxValue + 1
+        max_idx_value = 0
+        for acc in field_accesses:
+            if acc.field == field and acc.idxCoordinateValues[0] > max_idx_value:
+                max_idx_value = acc.idxCoordinateValues[0]
+        f_size = max_idx_value + 1
 
     dtype = get_base_type(field.dtype)
-    fieldType = "cuda::GPUField<%s>" % (dtype,) if isGpu else "GhostLayerField<%s, %d>" % (dtype, fSize)
+    field_type = "cuda::GPUField<%s>" % (dtype,) if is_gpu else "GhostLayerField<%s, %d>" % (dtype, f_size)
 
-    if not isTemporary:
-        dType = get_base_type(field.dtype)
-        fieldType = makeFieldType(dType, fSize)
-        if declarationOnly:
-            return "%s * %s;" % (fieldType, fieldName)
+    if not is_temporary:
+        dtype = get_base_type(field.dtype)
+        field_type = make_field_type(dtype, f_size)
+        if declaration_only:
+            return "%s * %s;" % (field_type, field_name)
         else:
-            prefix = "" if noDeclaration else "auto "
-            return "%s%s = block->getData< %s >(%sID);" % (prefix, fieldName, fieldType, fieldName)
+            prefix = "" if no_declaration else "auto "
+            return "%s%s = block->getData< %s >(%sID);" % (prefix, field_name, field_type, field_name)
     else:
-        assert fieldName.endswith('_tmp')
-        originalFieldName = fieldName[:-len('_tmp')]
-        if declarationOnly:
-            return "%s * %s;" % (fieldType, fieldName)
+        assert field_name.endswith('_tmp')
+        original_field_name = field_name[:-len('_tmp')]
+        if declaration_only:
+            return "%s * %s;" % (field_type, field_name)
         else:
-            declaration = "{type} * {tmpFieldName};".format(type=fieldType, tmpFieldName=fieldName)
-            tmpFieldStr = temporaryFieldTemplate.format(originalFieldName=originalFieldName,
-                                                        tmpFieldName=fieldName,
-                                                        type=fieldType)
-            return tmpFieldStr if noDeclaration else declaration + tmpFieldStr
+            declaration = "{type} * {tmp_field_name};".format(type=field_type, tmp_field_name=field_name)
+            tmp_field_str = temporaryFieldTemplate.format(original_field_name=original_field_name,
+                                                          tmp_field_name=field_name, type=field_type)
+            return tmp_field_str if no_declaration else declaration + tmp_field_str
 
 
 @jinja2.contextfilter
-def generateBlockDataToFieldExtraction(ctx, kernelInfo, parametersToIgnore=[], parameters=None,
-                                       declarationsOnly=False, noDeclarations=False):
-    ast = kernelInfo.ast
-    fieldAccesses = ast.atoms(ResolvedFieldAccess)
+def generate_block_data_to_field_extraction(ctx, kernel_info, parameters_to_ignore=[], parameters=None,
+                                            declarations_only=False, no_declarations=False):
+    ast = kernel_info.ast
+    field_accesses = ast.atoms(ResolvedFieldAccess)
 
     if parameters is not None:
-        assert parametersToIgnore == []
+        assert parameters_to_ignore == []
     else:
-        parameters = {p.fieldName for p in ast.parameters if p.isFieldPtrArgument}
-        parameters.difference_update(parametersToIgnore)
+        parameters = {p.field_name for p in ast.parameters if p.isFieldPtrArgument}
+        parameters.difference_update(parameters_to_ignore)
 
-    normal = {f for f in parameters if f not in kernelInfo.temporaryFields}
-    temporary = {f for f in parameters if f in kernelInfo.temporaryFields}
+    normal = {f for f in parameters if f not in kernel_info.temporaryFields}
+    temporary = {f for f in parameters if f in kernel_info.temporaryFields}
 
     args = {
-        'fieldAccesses': fieldAccesses,
-        'declarationOnly': declarationsOnly,
-        'noDeclaration': noDeclarations,
-        'isGpu': ctx['target'] == 'gpu',
+        'field_accesses': field_accesses,
+        'declaration_only': declarations_only,
+        'no_declaration': no_declarations,
+        'is_gpu': ctx['target'] == 'gpu',
     }
-    result = "\n".join(fieldExtractionCode(fieldName=fn, isTemporary=False, **args) for fn in normal) + "\n"
-    result += "\n".join(fieldExtractionCode(fieldName=fn, isTemporary=True, **args) for fn in temporary)
+    result = "\n".join(field_extraction_code(field_name=fn, is_temporary=False, **args) for fn in normal) + "\n"
+    result += "\n".join(field_extraction_code(field_name=fn, is_temporary=True, **args) for fn in temporary)
     return result
 
 
-def generateRefsForKernelParameters(kernelInfo, prefix, parametersToIgnore):
-    symbols = {p.fieldName for p in kernelInfo.ast.parameters if p.isFieldPtrArgument}
-    symbols.update(p.name for p in kernelInfo.ast.parameters if not p.isFieldArgument)
-    symbols.difference_update(parametersToIgnore)
+def generate_refs_for_kernel_parameters(kernel_info, prefix, parameters_to_ignore):
+    symbols = {p.field_name for p in kernel_info.ast.parameters if p.isFieldPtrArgument}
+    symbols.update(p.name for p in kernel_info.ast.parameters if not p.isFieldArgument)
+    symbols.difference_update(parameters_to_ignore)
     return "\n".join("auto & %s = %s%s;" % (s, prefix, s) for s in symbols)
 
 
 @jinja2.contextfilter
-def generateCall(ctx, kernelInfo, ghostLayersToInclude=0):
+def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
     """Generates the function call to a pystencils kernel"""
-    ast = kernelInfo.ast
+    ast = kernel_info.ast
 
-    ghostLayersToInclude = sp.sympify(ghostLayersToInclude)
-    if ast.ghostLayers is None:
-        requiredGhostLayers = 0
+    ghost_layers_to_include = sp.sympify(ghost_layers_to_include)
+    if ast.ghost_layers is None:
+        required_ghost_layers = 0
     else:
-        requiredGhostLayers = max(max(ast.ghostLayers))  # ghost layer info is ((xGlFront, xGlEnd), (yGlFront, yGlEnd).. )
+        # ghost layer info is ((xGlFront, xGlEnd), (yGlFront, yGlEnd).. )
+        required_ghost_layers = max(max(ast.ghost_layers))
 
-    isCpu = ctx['target'] == 'cpu'
+    is_cpu = ctx['target'] == 'cpu'
 
-    kernelCallLines = []
+    kernel_call_lines = []
     fields = {f.name: f for f in ast.fields_accessed}
 
-    spatialShapeSymbols = []
+    spatial_shape_symbols = []
 
     for param in ast.parameters:
-        if param.isFieldArgument and FieldType.isIndexed(fields[param.fieldName]):
+        if param.isFieldArgument and FieldType.is_indexed(fields[param.field_name]):
             continue
 
         if param.isFieldPtrArgument:
-            field = fields[param.fieldName]
-            coordinates = [-ghostLayersToInclude - requiredGhostLayers] * field.spatialDimensions
+            field = fields[param.field_name]
+            coordinates = [-ghost_layers_to_include - required_ghost_layers] * field.spatial_dimensions
             while len(coordinates) < 4:
                 coordinates.append(0)
 
-            actualGls = sp.Symbol(param.fieldName + "->nrOfGhostLayers()") - ghostLayersToInclude
-            if requiredGhostLayers > 0:
-                kernelCallLines.append("WALBERLA_CHECK_GREATER_EQUAL(%s, %s);" % (actualGls, requiredGhostLayers))
-            kernelCallLines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
-                                   ((param.dtype, param.name, param.fieldName) + tuple(coordinates)))
+            actual_gls = sp.Symbol(param.field_name + "->nrOfGhostLayers()") - ghost_layers_to_include
+            if required_ghost_layers > 0:
+                kernel_call_lines.append("WALBERLA_CHECK_GREATER_EQUAL(%s, %s);" % (actual_gls, required_ghost_layers))
+            kernel_call_lines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
+                                     ((param.dtype, param.name, param.field_name) + tuple(coordinates)))
 
         elif param.isFieldStrideArgument:
-            typeStr = get_base_type(param.dtype).base_name
-            strideNames = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
-            strideNames = ["%s(%s->%s)" % (typeStr, param.fieldName, e) for e in strideNames]
-            field = fields[param.fieldName]
-            strides = strideNames[:field.spatialDimensions]
-            assert field.indexDimensions in (0, 1)
-            if field.indexDimensions == 1:
-                strides.append(strideNames[-1])
-            if isCpu:
-                kernelCallLines.append("const %s %s [] = {%s};" % (typeStr, param.name, ", ".join(strides)))
+            type_str = get_base_type(param.dtype).base_name
+            stride_names = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
+            stride_names = ["%s(%s->%s)" % (type_str, param.field_name, e) for e in stride_names]
+            field = fields[param.field_name]
+            strides = stride_names[:field.spatial_dimensions]
+            assert field.index_dimensions in (0, 1)
+            if field.index_dimensions == 1:
+                strides.append(stride_names[-1])
+            if is_cpu:
+                kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(strides)))
             else:
-                kernelCallLines.append("const %s %s_cpu [] = {%s};" % (typeStr, param.name, ", ".join(strides)))
-                kernelCallLines.append("cudaMemcpyToSymbol(internal::%s, %s_cpu, %d * sizeof(%s));"
-                                       % (param.name, param.name, len(strides), typeStr))
+                kernel_call_lines.append("const %s %s_cpu [] = {%s};" % (type_str, param.name, ", ".join(strides)))
+                kernel_call_lines.append("cudaMemcpyToSymbol(internal::%s, %s_cpu, %d * sizeof(%s));"
+                                         % (param.name, param.name, len(strides), type_str))
 
         elif param.isFieldShapeArgument:
-            offset = 2 * ghostLayersToInclude + 2 * requiredGhostLayers
-            shapeNames = ['xSize()', 'ySize()', 'zSize()', 'fSize()']
-            typeStr = get_base_type(param.dtype).base_name
-            shapeNames = ["%s(%s->%s + %s)" % (typeStr, param.fieldName, e, offset) for e in shapeNames]
-            field = fields[param.fieldName]
-            shapes = shapeNames[:field.spatialDimensions]
+            offset = 2 * ghost_layers_to_include + 2 * required_ghost_layers
+            shape_names = ['xSize()', 'ySize()', 'zSize()', 'values_per_cell()']
+            type_str = get_base_type(param.dtype).base_name
+            shape_names = ["%s(%s->%s + %s)" % (type_str, param.field_name, e, offset) for e in shape_names]
+            field = fields[param.field_name]
+            shapes = shape_names[:field.spatial_dimensions]
 
-            spatialShapeSymbols = [sp.Symbol("%s_cpu[%d]" % (param.name, i)) for i in range(field.spatialDimensions)]
+            spatial_shape_symbols = [sp.Symbol("%s_cpu[%d]" % (param.name, i)) for i in range(field.spatial_dimensions)]
 
-            assert field.indexDimensions in (0, 1)
-            if field.indexDimensions == 1:
-                shapes.append(shapeNames[-1])
-            if isCpu:
-                kernelCallLines.append("const %s %s [] = {%s};" % (typeStr, param.name, ", ".join(shapes)))
+            assert field.index_dimensions in (0, 1)
+            if field.index_dimensions == 1:
+                shapes.append(shape_names[-1])
+            if is_cpu:
+                kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
             else:
-                kernelCallLines.append("const %s %s_cpu [] = {%s};" % (typeStr, param.name, ", ".join(shapes)))
-                kernelCallLines.append("cudaMemcpyToSymbol(internal::%s, %s_cpu, %d * sizeof(%s));"
-                                       % (param.name, param.name, len(shapes), typeStr))
+                kernel_call_lines.append("const %s %s_cpu [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
+                kernel_call_lines.append("cudaMemcpyToSymbol(internal::%s, %s_cpu, %d * sizeof(%s));"
+                                         % (param.name, param.name, len(shapes), type_str))
 
-    if not isCpu:
-        indexingDict = ast.indexing.getCallParameters(spatialShapeSymbols)
-        callParameters = ", ".join([p.name for p in ast.parameters if p.isFieldPtrArgument or not p.isFieldArgument])
-        spPrinterC = CustomSympyPrinter()
+    if not is_cpu:
+        indexing_dict = ast.indexing.call_parameters(spatial_shape_symbols)
+        call_parameters = ", ".join([p.name for p in ast.parameters if p.isFieldPtrArgument or not p.isFieldArgument])
+        sp_printer_c = CustomSympyPrinter()
 
-        kernelCallLines += [
-            "dim3 _block(int(%s), int(%s), int(%s));" % tuple(spPrinterC.doprint(e) for e in indexingDict['block']),
-            "dim3 _grid(int(%s), int(%s), int(%s));" % tuple(spPrinterC.doprint(e) for e in indexingDict['grid']),
-            "internal::%s<<<_grid, _block>>>(%s);" % (ast.functionName, callParameters),
+        kernel_call_lines += [
+            "dim3 _block(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['block']),
+            "dim3 _grid(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['grid']),
+            "internal::%s<<<_grid, _block>>>(%s);" % (ast.function_name, call_parameters),
         ]
     else:
-        kernelCallLines.append("internal::%s(%s);" % (ast.functionName, ", ".join([p.name for p in ast.parameters])))
-    return "\n".join(kernelCallLines)
+        kernel_call_lines.append("internal::%s(%s);" % (ast.function_name, ", ".join([p.name for p in ast.parameters])))
+    return "\n".join(kernel_call_lines)
 
 
-def generateSwaps(kernelInfo):
+def generate_swaps(kernel_info):
     """Generates code to swap main fields with temporary fields"""
     swaps = ""
-    for src, dst in kernelInfo.fieldSwaps:
+    for src, dst in kernel_info.fieldSwaps:
         swaps += "%s->swapDataPointers(%s);\n" % (src, dst)
     return swaps
 
 
-def generateConstructorInitializerList(kernelInfo, parametersToIgnore=[]):
-    ast = kernelInfo.ast
-    parametersToIgnore += kernelInfo.temporaryFields
+def generate_constructor_initializer_list(kernel_info, parameters_to_ignore=[]):
+    ast = kernel_info.ast
+    parameters_to_ignore += kernel_info.temporaryFields
 
-    parameterInitializerList = []
+    parameter_initializer_list = []
     for param in ast.parameters:
-        if param.isFieldPtrArgument and param.fieldName not in parametersToIgnore:
-            parameterInitializerList.append("%sID(%sID_)" % (param.fieldName, param.fieldName))
-        elif not param.isFieldArgument and param.name not in parametersToIgnore:
-            parameterInitializerList.append("%s(%s_)" % (param.name, param.name))
-    return ", ".join(parameterInitializerList)
+        if param.isFieldPtrArgument and param.field_name not in parameters_to_ignore:
+            parameter_initializer_list.append("%sID(%sID_)" % (param.field_name, param.field_name))
+        elif not param.isFieldArgument and param.name not in parameters_to_ignore:
+            parameter_initializer_list.append("%s(%s_)" % (param.name, param.name))
+    return ", ".join(parameter_initializer_list)
 
 
-def generateConstructorParameters(kernelInfo, parametersToIgnore=[]):
-    ast = kernelInfo.ast
-    parametersToIgnore += kernelInfo.temporaryFields
+def generate_constructor_parameters(kernel_info, parameters_to_ignore=[]):
+    ast = kernel_info.ast
+    parameters_to_ignore += kernel_info.temporaryFields
 
-    parameterList = []
+    parameter_list = []
     for param in ast.parameters:
-        if param.isFieldPtrArgument and param.fieldName not in parametersToIgnore:
-            parameterList.append("BlockDataID %sID_" % (param.fieldName, ))
-        elif not param.isFieldArgument and param.name not in parametersToIgnore:
-            parameterList.append("%s %s_" % (param.dtype, param.name,))
-    return ", ".join(parameterList)
+        if param.isFieldPtrArgument and param.field_name not in parameters_to_ignore:
+            parameter_list.append("BlockDataID %sID_" % (param.field_name, ))
+        elif not param.isFieldArgument and param.name not in parameters_to_ignore:
+            parameter_list.append("%s %s_" % (param.dtype, param.name,))
+    return ", ".join(parameter_list)
 
 
-def generateMembers(kernelInfo, parametersToIgnore=[]):
-    ast = kernelInfo.ast
-    parametersToIgnore += kernelInfo.temporaryFields
+def generate_members(kernel_info, parameters_to_ignore=[]):
+    ast = kernel_info.ast
+    parameters_to_ignore += kernel_info.temporaryFields
 
     result = []
     for param in ast.parameters:
-        if param.isFieldPtrArgument and param.fieldName not in parametersToIgnore:
-            result.append("BlockDataID %sID;" % (param.fieldName, ))
-        elif not param.isFieldArgument and param.name not in parametersToIgnore:
+        if param.isFieldPtrArgument and param.field_name not in parameters_to_ignore:
+            result.append("BlockDataID %sID;" % (param.field_name, ))
+        elif not param.isFieldArgument and param.name not in parameters_to_ignore:
             result.append("%s %s;" % (param.dtype, param.name,))
     return "\n".join(result)
 
 
-def addPystencilsFiltersToJinjaEnv(jinjaEnv):
-    jinjaEnv.filters['generateDefinition'] = generateDefinition
-    jinjaEnv.filters['generateDeclaration'] = generateDeclaration
-    jinjaEnv.filters['generateMembers'] = generateMembers
-    jinjaEnv.filters['generateConstructorParameters'] = generateConstructorParameters
-    jinjaEnv.filters['generateConstructorInitializerList'] = generateConstructorInitializerList
-    jinjaEnv.filters['generateCall'] = generateCall
-    jinjaEnv.filters['generateBlockDataToFieldExtraction'] = generateBlockDataToFieldExtraction
-    jinjaEnv.filters['generateSwaps'] = generateSwaps
-    jinjaEnv.filters['generateRefsForKernelParameters'] = generateRefsForKernelParameters
+def add_pystencils_filters_to_jinja_env(jinja_env):
+    jinja_env.filters['generate_definition'] = generate_definition
+    jinja_env.filters['generate_declaration'] = generate_declaration
+    jinja_env.filters['generate_members'] = generate_members
+    jinja_env.filters['generate_constructor_parameters'] = generate_constructor_parameters
+    jinja_env.filters['generate_constructor_initializer_list'] = generate_constructor_initializer_list
+    jinja_env.filters['generate_call'] = generate_call
+    jinja_env.filters['generate_block_data_to_field_extraction'] = generate_block_data_to_field_extraction
+    jinja_env.filters['generate_swaps'] = generate_swaps
+    jinja_env.filters['generate_refs_for_kernel_parameters'] = generate_refs_for_kernel_parameters
