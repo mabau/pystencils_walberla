@@ -6,7 +6,7 @@ from pystencils import Field, SymbolCreator
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
 from pystencils.sympyextensions import assignments_from_python_function
 
-KernelInfo = namedtuple("KernelInfo", ['ast', 'temporary_fields', 'fieldSwaps'])
+KernelInfo = namedtuple("KernelInfo", ['ast', 'temporary_fields', 'field_swaps'])
 
 
 class Sweep:
@@ -14,8 +14,8 @@ class Sweep:
 
     def __init__(self, dim=3, f_size=None):
         self.dim = dim
-        self.fSize = f_size
-        self._fieldSwaps = []
+        self.f_size = f_size
+        self._field_swaps = []
         self._temporary_fields = []
 
     @staticmethod
@@ -26,7 +26,7 @@ class Sweep:
     def field(self, name, f_size=None):
         """Create a symbolic field that is passed to the sweep as BlockDataID"""
         # layout does not matter, since it is only used to determine order of spatial loops i.e. zyx, which is
-        # always the same in waLBerla
+        # always the same in walberla
         if self.dim is None:
             raise ValueError("Set the dimension of the sweep first, e.g. sweep.dim=3")
         return Field.create_generic(name, spatial_dimensions=self.dim, index_dimensions=1 if f_size else 0,
@@ -37,7 +37,7 @@ class Sweep:
         if tmp_field_name is None:
             tmp_field_name = field.name + "_tmp"
         self._temporary_fields.append(tmp_field_name)
-        self._fieldSwaps.append((tmp_field_name, field.name))
+        self._field_swaps.append((tmp_field_name, field.name))
         return Field.create_generic(tmp_field_name, spatial_dimensions=field.spatial_dimensions,
                                     index_dimensions=field.index_dimensions, layout=field.layout,
                                     index_shape=field.index_shape)
@@ -63,9 +63,9 @@ class Sweep:
             add_pystencils_filters_to_jinja_env(env)
 
             context = {
-                'kernel': KernelInfo(ast, sweep._temporary_fields, sweep._fieldSwaps),
+                'kernel': KernelInfo(ast, sweep._temporary_fields, sweep._field_swaps),
                 'namespace': namespace,
-                'className': ast.function_name[0].upper() + ast.function_name[1:],
+                'class_name': ast.function_name[0].upper() + ast.function_name[1:],
                 'target': target,
             }
 
@@ -99,7 +99,7 @@ class Sweep:
             context = {
                 'kernel': KernelInfo(ast, temporary_fields, field_swaps),
                 'namespace': namespace,
-                'className': ast.function_name[0].upper() + ast.function_name[1:],
+                'class_name': ast.function_name[0].upper() + ast.function_name[1:],
                 'target': target,
             }
 

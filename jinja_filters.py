@@ -30,8 +30,8 @@ def generate_declaration(ctx, kernel_info):
     is_gpu = ctx['target'] == 'gpu'
     ast = kernel_info.ast
     if is_gpu:
-        params_in_constant_mem = [p for p in ast.parameters if p.isFieldStrideArgument or p.isFieldShapeArgument]
-        ast.globalVariables.update([p.name for p in params_in_constant_mem])
+        params_in_constant_mem = [p for p in ast.parameters if p.is_field_stride_argument or p.is_field_shape_argument]
+        ast.global_variables.update([p.name for p in params_in_constant_mem])
 
     result = generate_c(ast, signature_only=True) + ";"
     result = "namespace internal {\n%s\n}" % (result,)
@@ -44,9 +44,9 @@ def generate_definition(ctx, kernel_info):
     is_gpu = ctx['target'] == 'gpu'
     ast = kernel_info.ast
     if is_gpu:
-        params_in_constant_mem = [p for p in ast.parameters if p.isFieldStrideArgument or p.isFieldShapeArgument]
+        params_in_constant_mem = [p for p in ast.parameters if p.is_field_stride_argument or p.is_field_shape_argument]
         ast = copy.deepcopy(ast)
-        ast.globalVariables.update([p.symbol for p in params_in_constant_mem])
+        ast.global_variables.update([p.symbol for p in params_in_constant_mem])
         prefix = ["__constant__ %s %s[4];" % (get_base_type(p.dtype).base_name, p.name) for p in params_in_constant_mem]
         prefix = "\n".join(prefix)
     else:
@@ -90,8 +90,8 @@ def field_extraction_code(field_accesses, field_name, is_temporary, declaration_
     else:
         max_idx_value = 0
         for acc in field_accesses:
-            if acc.field == field and acc.idxCoordinateValues[0] > max_idx_value:
-                max_idx_value = acc.idxCoordinateValues[0]
+            if acc.field == field and acc.idx_coordinate_values[0] > max_idx_value:
+                max_idx_value = acc.idx_coordinate_values[0]
         f_size = max_idx_value + 1
 
     dtype = get_base_type(field.dtype)
@@ -113,7 +113,7 @@ def field_extraction_code(field_accesses, field_name, is_temporary, declaration_
         else:
             declaration = "{type} * {tmp_field_name};".format(type=field_type, tmp_field_name=field_name)
             tmp_field_str = temporary_fieldTemplate.format(original_field_name=original_field_name,
-                                                          tmp_field_name=field_name, type=field_type)
+                                                           tmp_field_name=field_name, type=field_type)
             return tmp_field_str if no_declaration else declaration + tmp_field_str
 
 
@@ -126,7 +126,7 @@ def generate_block_data_to_field_extraction(ctx, kernel_info, parameters_to_igno
     if parameters is not None:
         assert parameters_to_ignore == []
     else:
-        parameters = {p.field_name for p in ast.parameters if p.isFieldPtrArgument}
+        parameters = {p.field_name for p in ast.parameters if p.is_field_ptr_argument}
         parameters.difference_update(parameters_to_ignore)
 
     normal = {f for f in parameters if f not in kernel_info.temporary_fields}
@@ -144,8 +144,8 @@ def generate_block_data_to_field_extraction(ctx, kernel_info, parameters_to_igno
 
 
 def generate_refs_for_kernel_parameters(kernel_info, prefix, parameters_to_ignore):
-    symbols = {p.field_name for p in kernel_info.ast.parameters if p.isFieldPtrArgument}
-    symbols.update(p.name for p in kernel_info.ast.parameters if not p.isFieldArgument)
+    symbols = {p.field_name for p in kernel_info.ast.parameters if p.is_field_ptr_argument}
+    symbols.update(p.name for p in kernel_info.ast.parameters if not p.is_field_argument)
     symbols.difference_update(parameters_to_ignore)
     return "\n".join("auto & %s = %s%s;" % (s, prefix, s) for s in symbols)
 
@@ -159,7 +159,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
     if ast.ghost_layers is None:
         required_ghost_layers = 0
     else:
-        # ghost layer info is ((xGlFront, xGlEnd), (yGlFront, yGlEnd).. )
+        # ghost layer info is ((x_gl_front, x_gl_end), (y_gl_front, y_gl_end).. )
         required_ghost_layers = max(max(ast.ghost_layers))
 
     is_cpu = ctx['target'] == 'cpu'
@@ -170,10 +170,10 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
     spatial_shape_symbols = []
 
     for param in ast.parameters:
-        if param.isFieldArgument and FieldType.is_indexed(fields[param.field_name]):
+        if param.is_field_argument and FieldType.is_indexed(fields[param.field_name]):
             continue
 
-        if param.isFieldPtrArgument:
+        if param.is_field_ptr_argument:
             field = fields[param.field_name]
             coordinates = [-ghost_layers_to_include - required_ghost_layers] * field.spatial_dimensions
             while len(coordinates) < 4:
@@ -185,7 +185,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
             kernel_call_lines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
                                      ((param.dtype, param.name, param.field_name) + tuple(coordinates)))
 
-        elif param.isFieldStrideArgument:
+        elif param.is_field_stride_argument:
             type_str = get_base_type(param.dtype).base_name
             stride_names = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
             stride_names = ["%s(%s->%s)" % (type_str, param.field_name, e) for e in stride_names]
@@ -201,7 +201,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
                 kernel_call_lines.append("cudaMemcpyToSymbol(internal::%s, %s_cpu, %d * sizeof(%s));"
                                          % (param.name, param.name, len(strides), type_str))
 
-        elif param.isFieldShapeArgument:
+        elif param.is_field_shape_argument:
             offset = 2 * ghost_layers_to_include + 2 * required_ghost_layers
             shape_names = ['xSize()', 'ySize()', 'zSize()', 'values_per_cell()']
             type_str = get_base_type(param.dtype).base_name
@@ -223,7 +223,8 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
 
     if not is_cpu:
         indexing_dict = ast.indexing.call_parameters(spatial_shape_symbols)
-        call_parameters = ", ".join([p.name for p in ast.parameters if p.isFieldPtrArgument or not p.isFieldArgument])
+        call_parameters = ", ".join([p.name for p in ast.parameters
+                                     if p.is_field_ptr_argument or not p.is_field_argument])
         sp_printer_c = CustomSympyPrinter()
 
         kernel_call_lines += [
@@ -239,7 +240,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
 def generate_swaps(kernel_info):
     """Generates code to swap main fields with temporary fields"""
     swaps = ""
-    for src, dst in kernel_info.fieldSwaps:
+    for src, dst in kernel_info.field_swaps:
         swaps += "%s->swapDataPointers(%s);\n" % (src, dst)
     return swaps
 
@@ -250,9 +251,9 @@ def generate_constructor_initializer_list(kernel_info, parameters_to_ignore=[]):
 
     parameter_initializer_list = []
     for param in ast.parameters:
-        if param.isFieldPtrArgument and param.field_name not in parameters_to_ignore:
+        if param.is_field_ptr_argument and param.field_name not in parameters_to_ignore:
             parameter_initializer_list.append("%sID(%sID_)" % (param.field_name, param.field_name))
-        elif not param.isFieldArgument and param.name not in parameters_to_ignore:
+        elif not param.is_field_argument and param.name not in parameters_to_ignore:
             parameter_initializer_list.append("%s(%s_)" % (param.name, param.name))
     return ", ".join(parameter_initializer_list)
 
@@ -263,9 +264,9 @@ def generate_constructor_parameters(kernel_info, parameters_to_ignore=[]):
 
     parameter_list = []
     for param in ast.parameters:
-        if param.isFieldPtrArgument and param.field_name not in parameters_to_ignore:
+        if param.is_field_ptr_argument and param.field_name not in parameters_to_ignore:
             parameter_list.append("BlockDataID %sID_" % (param.field_name, ))
-        elif not param.isFieldArgument and param.name not in parameters_to_ignore:
+        elif not param.is_field_argument and param.name not in parameters_to_ignore:
             parameter_list.append("%s %s_" % (param.dtype, param.name,))
     return ", ".join(parameter_list)
 
@@ -276,9 +277,9 @@ def generate_members(kernel_info, parameters_to_ignore=[]):
 
     result = []
     for param in ast.parameters:
-        if param.isFieldPtrArgument and param.field_name not in parameters_to_ignore:
+        if param.is_field_ptr_argument and param.field_name not in parameters_to_ignore:
             result.append("BlockDataID %sID;" % (param.field_name, ))
-        elif not param.isFieldArgument and param.name not in parameters_to_ignore:
+        elif not param.is_field_argument and param.name not in parameters_to_ignore:
             result.append("%s %s;" % (param.dtype, param.name,))
     return "\n".join(result)
 
