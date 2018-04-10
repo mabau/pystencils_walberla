@@ -8,7 +8,7 @@ from pystencils.cpu import generate_c
 from pystencils.field import FieldType
 
 
-temporaryFieldTemplate = """
+temporary_fieldTemplate = """
 // Getting temporary field {tmp_field_name}
 static std::set< {type} *, field::SwapableCompare< {type} * > > cache_{original_field_name};
 auto it = cache_{original_field_name}.find( {original_field_name} );
@@ -112,7 +112,7 @@ def field_extraction_code(field_accesses, field_name, is_temporary, declaration_
             return "%s * %s;" % (field_type, field_name)
         else:
             declaration = "{type} * {tmp_field_name};".format(type=field_type, tmp_field_name=field_name)
-            tmp_field_str = temporaryFieldTemplate.format(original_field_name=original_field_name,
+            tmp_field_str = temporary_fieldTemplate.format(original_field_name=original_field_name,
                                                           tmp_field_name=field_name, type=field_type)
             return tmp_field_str if no_declaration else declaration + tmp_field_str
 
@@ -129,8 +129,8 @@ def generate_block_data_to_field_extraction(ctx, kernel_info, parameters_to_igno
         parameters = {p.field_name for p in ast.parameters if p.isFieldPtrArgument}
         parameters.difference_update(parameters_to_ignore)
 
-    normal = {f for f in parameters if f not in kernel_info.temporaryFields}
-    temporary = {f for f in parameters if f in kernel_info.temporaryFields}
+    normal = {f for f in parameters if f not in kernel_info.temporary_fields}
+    temporary = {f for f in parameters if f in kernel_info.temporary_fields}
 
     args = {
         'field_accesses': field_accesses,
@@ -246,7 +246,7 @@ def generate_swaps(kernel_info):
 
 def generate_constructor_initializer_list(kernel_info, parameters_to_ignore=[]):
     ast = kernel_info.ast
-    parameters_to_ignore += kernel_info.temporaryFields
+    parameters_to_ignore += kernel_info.temporary_fields
 
     parameter_initializer_list = []
     for param in ast.parameters:
@@ -259,7 +259,7 @@ def generate_constructor_initializer_list(kernel_info, parameters_to_ignore=[]):
 
 def generate_constructor_parameters(kernel_info, parameters_to_ignore=[]):
     ast = kernel_info.ast
-    parameters_to_ignore += kernel_info.temporaryFields
+    parameters_to_ignore += kernel_info.temporary_fields
 
     parameter_list = []
     for param in ast.parameters:
@@ -272,7 +272,7 @@ def generate_constructor_parameters(kernel_info, parameters_to_ignore=[]):
 
 def generate_members(kernel_info, parameters_to_ignore=[]):
     ast = kernel_info.ast
-    parameters_to_ignore += kernel_info.temporaryFields
+    parameters_to_ignore += kernel_info.temporary_fields
 
     result = []
     for param in ast.parameters:

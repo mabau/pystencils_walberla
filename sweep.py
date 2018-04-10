@@ -2,19 +2,21 @@ import sympy as sp
 from collections import namedtuple
 from jinja2 import Environment, PackageLoader
 
-from pystencils import Field
+from pystencils import Field, SymbolCreator
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
 from pystencils.sympyextensions import assignments_from_python_function
 
-KernelInfo = namedtuple("KernelInfo", ['ast', 'temporaryFields', 'fieldSwaps'])
+KernelInfo = namedtuple("KernelInfo", ['ast', 'temporary_fields', 'fieldSwaps'])
 
 
 class Sweep:
+    const = SymbolCreator()
+
     def __init__(self, dim=3, f_size=None):
         self.dim = dim
         self.fSize = f_size
         self._fieldSwaps = []
-        self._temporaryFields = []
+        self._temporary_fields = []
 
     @staticmethod
     def constant(name):
@@ -34,7 +36,7 @@ class Sweep:
         """Creates a temporary field as clone of field, which is swapped at the end of the sweep"""
         if tmp_field_name is None:
             tmp_field_name = field.name + "_tmp"
-        self._temporaryFields.append(tmp_field_name)
+        self._temporary_fields.append(tmp_field_name)
         self._fieldSwaps.append((tmp_field_name, field.name))
         return Field.create_generic(tmp_field_name, spatial_dimensions=field.spatial_dimensions,
                                     index_dimensions=field.index_dimensions, layout=field.layout,
@@ -61,7 +63,7 @@ class Sweep:
             add_pystencils_filters_to_jinja_env(env)
 
             context = {
-                'kernel': KernelInfo(ast, sweep._temporaryFields, sweep._fieldSwaps),
+                'kernel': KernelInfo(ast, sweep._temporary_fields, sweep._fieldSwaps),
                 'namespace': namespace,
                 'className': ast.function_name[0].upper() + ast.function_name[1:],
                 'target': target,

@@ -31,6 +31,10 @@ class CodeGeneratorCMakeIntegration:
     def generated_files(self):
         return sum((e[0] for e in self._registeredGenerators), [])
 
+    def get_generators(self):
+        """Returns a dict mapping filename to function that generates code for this file"""
+        return {tuple(a): b for a, b in self._registeredGenerators}
+
     def generate(self):
         for paths, generatorFunction in self._registeredGenerators:
             files = generatorFunction()
@@ -66,6 +70,10 @@ def main():
     else:
         parser.print_help()
     AUTO_BLOCKSIZE_LIMITING = previous_block_size_limiting_state
+
+
+def do_not_run_generation_at_exit():
+    atexit.unregister(main)
 
 
 atexit.register(main)
