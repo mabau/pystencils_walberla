@@ -2,9 +2,8 @@ import sympy as sp
 import jinja2
 import copy
 from pystencils.astnodes import ResolvedFieldAccess
-from pystencils.backends.cbackend import CustomSympyPrinter
 from pystencils.data_types import get_base_type
-from pystencils.cpu import generate_c
+from pystencils.backends.cbackend import generate_c, CustomSympyPrinter
 from pystencils.field import FieldType
 
 
