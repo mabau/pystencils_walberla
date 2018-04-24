@@ -2,9 +2,9 @@ import sympy as sp
 from collections import namedtuple
 from jinja2 import Environment, PackageLoader
 
+from pystencils import kernel as kernel_decorator
 from pystencils import Field, SymbolCreator
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
-from pystencils.sympyextensions import assignments_from_python_function
 
 KernelInfo = namedtuple("KernelInfo", ['ast', 'temporary_fields', 'field_swaps'])
 
@@ -49,7 +49,7 @@ class Sweep:
         sweep = Sweep(dim, f_size)
 
         def generate_header_and_source():
-            eqs = assignments_from_python_function(sweep_function, sweep=sweep)
+            eqs = kernel_decorator(sweep_function, sweep=sweep)
             if target == 'cpu':
                 from pystencils.cpu import create_kernel, add_openmp
                 ast = create_kernel(eqs, function_name=name)
