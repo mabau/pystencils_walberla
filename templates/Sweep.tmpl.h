@@ -13,7 +13,7 @@
 //  You should have received a copy of the GNU General Public License along
 //  with waLBerla (see COPYING.txt). If not, see <http://www.gnu.org/licenses/>.
 //
-//! \\file {{className}}.h
+//! \\file {{class_name}}.h
 //! \\author pystencils
 //======================================================================================================================
 
@@ -43,10 +43,10 @@ namespace walberla {
 namespace {{namespace}} {
 
 
-class {{className}}
+class {{class_name}}
 {
 public:
-    {{className}}( {{kernel|generate_constructor_parameters}} )
+    {{class_name}}( {{kernel|generate_constructor_parameters}} )
         : {{ kernel|generate_constructor_initializer_list }}
     {};
 

@@ -202,7 +202,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
 
         elif param.is_field_shape_argument:
             offset = 2 * ghost_layers_to_include + 2 * required_ghost_layers
-            shape_names = ['xSize()', 'ySize()', 'zSize()', 'values_per_cell()']
+            shape_names = ['xSize()', 'ySize()', 'zSize()', 'fSize()']
             type_str = get_base_type(param.dtype).base_name
             shape_names = ["%s(%s->%s + %s)" % (type_str, param.field_name, e, offset) for e in shape_names]
             field = fields[param.field_name]
