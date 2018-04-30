@@ -1,5 +1,6 @@
 import sympy as sp
 from collections import namedtuple
+import functools
 from jinja2 import Environment, PackageLoader
 
 from pystencils import kernel as kernel_decorator
@@ -48,64 +49,46 @@ class Sweep:
         from pystencils_walberla.cmake_integration import codegen
         sweep = Sweep(dim, f_size)
 
-        def generate_header_and_source():
-            eqs = kernel_decorator(sweep_function, sweep=sweep)
-            if target == 'cpu':
-                from pystencils.cpu import create_kernel, add_openmp
-                ast = create_kernel(eqs, function_name=name)
-                if openmp:
-                    add_openmp(ast, num_threads=openmp)
-            elif target == 'gpu':
-                from pystencils.gpucuda.kernelcreation import create_cuda_kernel
-                ast = create_cuda_kernel(eqs, function_name=name)
-
-            env = Environment(loader=PackageLoader('pystencils_walberla'))
-            add_pystencils_filters_to_jinja_env(env)
-
-            context = {
-                'kernel': KernelInfo(ast, sweep._temporary_fields, sweep._field_swaps),
-                'namespace': namespace,
-                'class_name': ast.function_name[0].upper() + ast.function_name[1:],
-                'target': target,
-            }
-
-            header = env.get_template("Sweep.tmpl.h").render(**context)
-            source = env.get_template("Sweep.tmpl.cpp").render(**context)
-            return header, source
+        func = functools.partial(kernel_decorator, sweep_function, sweep=sweep)
+        cb = functools.partial(Sweep._generate_header_and_source, func, name, target, openmp,
+                               namespace, sweep._temporary_fields, sweep._field_swaps)
 
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
-        codegen.register(file_names, generate_header_and_source)
+        codegen.register(file_names, cb)
 
     @staticmethod
     def generate_from_equations(name, function_returning_equations, temporary_fields=[], field_swaps=[],
                                 namespace="pystencils", target='cpu', openmp=True, **kwargs):
         from pystencils_walberla.cmake_integration import codegen
-
-        def generate_header_and_source():
-            eqs = function_returning_equations(**kwargs)
-
-            if target == 'cpu':
-                from pystencils.cpu import create_kernel, add_openmp
-                ast = create_kernel(eqs, function_name=name)
-                if openmp:
-                    add_openmp(ast, num_threads=openmp)
-            elif target == 'gpu':
-                from pystencils.gpucuda.kernelcreation import create_cuda_kernel
-                ast = create_cuda_kernel(eqs, function_name=name)
-
-            env = Environment(loader=PackageLoader('pystencils_walberla'))
-            add_pystencils_filters_to_jinja_env(env)
-
-            context = {
-                'kernel': KernelInfo(ast, temporary_fields, field_swaps),
-                'namespace': namespace,
-                'class_name': ast.function_name[0].upper() + ast.function_name[1:],
-                'target': target,
-            }
-
-            header = env.get_template("Sweep.tmpl.h").render(**context)
-            source = env.get_template("Sweep.tmpl.cpp").render(**context)
-            return header, source
-
+        cb = functools.partial(Sweep._generate_header_and_source, function_returning_equations, name, target, openmp,
+                               namespace, temporary_fields, field_swaps, **kwargs)
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
-        codegen.register(file_names, generate_header_and_source)
+        codegen.register(file_names, cb)
+
+    @staticmethod
+    def _generate_header_and_source(function_returning_equations, name, target, openmp, namespace,
+                                    temporary_fields, field_swaps, **kwargs):
+        eqs = function_returning_equations(**kwargs)
+
+        if target == 'cpu':
+            from pystencils.cpu import create_kernel, add_openmp
+            ast = create_kernel(eqs, function_name=name)
+            if openmp:
+                add_openmp(ast, num_threads=openmp)
+        elif target == 'gpu':
+            from pystencils.gpucuda.kernelcreation import create_cuda_kernel
+            ast = create_cuda_kernel(eqs, function_name=name)
+
+        env = Environment(loader=PackageLoader('pystencils_walberla'))
+        add_pystencils_filters_to_jinja_env(env)
+
+        context = {
+            'kernel': KernelInfo(ast, temporary_fields, field_swaps),
+            'namespace': namespace,
+            'class_name': ast.function_name[0].upper() + ast.function_name[1:],
+            'target': target,
+        }
+
+        header = env.get_template("Sweep.tmpl.h").render(**context)
+        source = env.get_template("Sweep.tmpl.cpp").render(**context)
+        return header, source
