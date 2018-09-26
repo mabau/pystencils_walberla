@@ -33,7 +33,7 @@ def generate_declaration(ctx, kernel_info):
         ast.global_variables.update([p.name for p in params_in_constant_mem])
 
     result = generate_c(ast, signature_only=True) + ";"
-    result = "namespace internal {\n%s\n}" % (result,)
+    result = "namespace internal_%s {\n%s\n}" % (ast.function_name, result,)
     return result
 
 
@@ -52,7 +52,7 @@ def generate_definition(ctx, kernel_info):
         prefix = ""
 
     result = generate_c(ast)
-    result = "namespace internal {\n%s\nstatic %s\n}" % (prefix, result)
+    result = "namespace internal_%s {\n%s\nstatic %s\n}" % (ast.function_name, prefix, result)
     return result
 
 
@@ -174,15 +174,19 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
 
         if param.is_field_ptr_argument:
             field = fields[param.field_name]
-            coordinates = [-ghost_layers_to_include - required_ghost_layers] * field.spatial_dimensions
-            while len(coordinates) < 4:
-                coordinates.append(0)
+            if field.field_type == FieldType.BUFFER:
+                kernel_call_lines.append("%s %s = %s;" % (param.dtype, param.name, param.field_name))
+            else:
+                coordinates = [-ghost_layers_to_include - required_ghost_layers] * field.spatial_dimensions
+                while len(coordinates) < 4:
+                    coordinates.append(0)
 
-            actual_gls = sp.Symbol(param.field_name + "->nrOfGhostLayers()") - ghost_layers_to_include
-            if required_ghost_layers > 0:
-                kernel_call_lines.append("WALBERLA_CHECK_GREATER_EQUAL(%s, %s);" % (actual_gls, required_ghost_layers))
-            kernel_call_lines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
-                                     ((param.dtype, param.name, param.field_name) + tuple(coordinates)))
+                actual_gls = sp.Symbol(param.field_name + "->nrOfGhostLayers()") - ghost_layers_to_include
+                if required_ghost_layers > 0:
+                    kernel_call_lines.append("WALBERLA_CHECK_GREATER_EQUAL(%s, %s);" %
+                                             (actual_gls, required_ghost_layers))
+                kernel_call_lines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
+                                         ((param.dtype, param.name, param.field_name) + tuple(coordinates)))
 
         elif param.is_field_stride_argument:
             type_str = get_base_type(param.dtype).base_name
@@ -197,8 +201,8 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
                 kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(strides)))
             else:
                 kernel_call_lines.append("const %s %s_cpu [] = {%s};" % (type_str, param.name, ", ".join(strides)))
-                kernel_call_lines.append("cudaMemcpyToSymbol(internal::%s, %s_cpu, %d * sizeof(%s));"
-                                         % (param.name, param.name, len(strides), type_str))
+                kernel_call_lines.append("cudaMemcpyToSymbol(internal_%s::%s, %s_cpu, %d * sizeof(%s));"
+                                         % (ast.function_name, param.name, param.name, len(strides), type_str))
 
         elif param.is_field_shape_argument:
             offset = 2 * ghost_layers_to_include + 2 * required_ghost_layers
@@ -229,10 +233,10 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
         kernel_call_lines += [
             "dim3 _block(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['block']),
             "dim3 _grid(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['grid']),
-            "internal::%s<<<_grid, _block>>>(%s);" % (ast.function_name, call_parameters),
+            "internal_%s::%s<<<_grid, _block>>>(%s);" % (ast.function_name, ast.function_name, call_parameters),
         ]
     else:
-        kernel_call_lines.append("internal::%s(%s);" % (ast.function_name, ", ".join([p.name for p in ast.parameters])))
+        kernel_call_lines.append("internal_%s::%s(%s);" % (ast.function_name, ast.function_name, ", ".join([p.name for p in ast.parameters])))
     return "\n".join(kernel_call_lines)
 
 
