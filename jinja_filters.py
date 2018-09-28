@@ -23,6 +23,25 @@ else
 """
 
 
+def make_field_type(dtype, f_size, is_gpu):
+    if is_gpu:
+        return "cuda::GPUField<%s>" % (dtype,)
+    else:
+        return "GhostLayerField<%s, %d>" % (dtype, f_size)
+
+
+def get_field_fsize(field, field_accesses=()):
+    if field.has_fixed_index_shape and field.index_dimensions > 0:
+        return field.index_shape[0]
+    elif field.index_dimensions == 0:
+        return 1
+    else:
+        max_idx_value = 0
+        for acc in field_accesses:
+            if acc.field == field and acc.idx_coordinate_values[0] > max_idx_value:
+                max_idx_value = acc.idx_coordinate_values[0]
+        return max_idx_value + 1
+
 @jinja2.contextfilter
 def generate_declaration(ctx, kernel_info):
     """Generates the declaration of the kernel function"""
@@ -74,31 +93,15 @@ def field_extraction_code(field_accesses, field_name, is_temporary, declaration_
     fields = {fa.field.name: fa.field for fa in field_accesses}
     field = fields[field_name]
 
-    def make_field_type(dtype, f_size):
-        if is_gpu:
-            return "cuda::GPUField<%s>" % (dtype,)
-        else:
-            return "GhostLayerField<%s, %d>" % (dtype, f_size)
-
     # Determine size of f coordinate which is a template parameter
     assert field.index_dimensions <= 1
-    if field.has_fixed_index_shape and field.index_dimensions > 0:
-        f_size = field.index_shape[0]
-    elif field.index_dimensions == 0:
-        f_size = 1
-    else:
-        max_idx_value = 0
-        for acc in field_accesses:
-            if acc.field == field and acc.idx_coordinate_values[0] > max_idx_value:
-                max_idx_value = acc.idx_coordinate_values[0]
-        f_size = max_idx_value + 1
-
+    f_size = get_field_fsize(field, field_accesses)
     dtype = get_base_type(field.dtype)
     field_type = "cuda::GPUField<%s>" % (dtype,) if is_gpu else "GhostLayerField<%s, %d>" % (dtype, f_size)
 
     if not is_temporary:
         dtype = get_base_type(field.dtype)
-        field_type = make_field_type(dtype, f_size)
+        field_type = make_field_type(dtype, f_size, is_gpu)
         if declaration_only:
             return "%s * %s;" % (field_type, field_name)
         else:
@@ -115,6 +118,18 @@ def field_extraction_code(field_accesses, field_name, is_temporary, declaration_
                                                            tmp_field_name=field_name, type=field_type)
             return tmp_field_str if no_declaration else declaration + tmp_field_str
 
+
+@jinja2.contextfilter
+def generate_field_parameters(ctx, kernel_info, parameters_to_ignore=[]):
+    is_gpu = ctx['target'] == 'gpu'
+    ast = kernel_info.ast
+    fields = sorted(list(ast.fields_accessed), key=lambda f: f.name)
+    field_accesses = ast.atoms(ResolvedFieldAccess)
+
+    return ", ".join(["%s * %s" % (make_field_type(get_base_type(f.dtype),
+                                                   get_field_fsize(f, field_accesses),
+                                                   is_gpu), f.name)
+                      for f in fields if f.name not in parameters_to_ignore])
 
 @jinja2.contextfilter
 def generate_block_data_to_field_extraction(ctx, kernel_info, parameters_to_ignore=[], parameters=None,
@@ -150,8 +165,22 @@ def generate_refs_for_kernel_parameters(kernel_info, prefix, parameters_to_ignor
 
 
 @jinja2.contextfilter
-def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
-    """Generates the function call to a pystencils kernel"""
+def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=None, stream=None):
+    """Generates the function call to a pystencils kernel
+
+    Args:
+        kernel_info:
+        ghost_layers_to_include: if left to 0, only the inner part of the ghost layer field is looped over
+                                 a CHECK is inserted that the field has as many ghost layers as the pystencils AST
+                                 needs. This parameter specifies how many ghost layers the kernel should view as
+                                 "inner area". The ghost layer field has to have the required number of ghost layers
+                                 remaining. Parameter has to be left to default if cell_interval is given.
+        cell_interval: Defines the name (string) of a walberla CellInterval object in scope,
+                       that defines the inner region for the kernel to loop over. Parameter has to be left to default
+                       if ghost_layers_to_include is specified.
+        stream: optional name of cuda stream variable
+    """
+    assert isinstance(ghost_layers_to_include, str) or ghost_layers_to_include >= 0
     ast = kernel_info.ast
 
     ghost_layers_to_include = sp.sympify(ghost_layers_to_include)
@@ -168,6 +197,27 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
 
     spatial_shape_symbols = []
 
+    def get_start_coordinates(parameter):
+        field_object = fields[parameter.field_name]
+        if cell_interval is None:
+            return [-ghost_layers_to_include - required_ghost_layers] * field_object.spatial_dimensions
+        else:
+            assert ghost_layers_to_include == 0
+            return [sp.Symbol("{ci}.{coord}Min()".format(coord=coord, ci=cell_interval)) - required_ghost_layers
+                    for coord in ('x', 'y', 'z')]
+
+    def get_end_coordinates(parameter):
+        field_object = fields[parameter.field_name]
+        if cell_interval is None:
+            shape_names = ['xSize()', 'ySize()', 'zSize()'][:field_object.spatial_dimensions]
+            offset = 2 * ghost_layers_to_include + 2 * required_ghost_layers
+            return ["%s->%s + %s" % (parameter.field_name, e, offset) for e in shape_names]
+        else:
+            assert ghost_layers_to_include == 0
+            coord_names = ['x', 'y', 'z'][:field_object.spatial_dimensions]
+            return ["{ci}.{coord}Size() + {gl}".format(coord=coord, ci=cell_interval, gl=required_ghost_layers)
+                    for coord in coord_names]
+
     for param in ast.parameters:
         if param.is_field_argument and FieldType.is_indexed(fields[param.field_name]):
             continue
@@ -177,14 +227,13 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
             if field.field_type == FieldType.BUFFER:
                 kernel_call_lines.append("%s %s = %s;" % (param.dtype, param.name, param.field_name))
             else:
-                coordinates = [-ghost_layers_to_include - required_ghost_layers] * field.spatial_dimensions
+                coordinates = get_start_coordinates(param)
+                actual_gls = "int_c(%s->nrOfGhostLayers())" % (param.field_name, )
+                for c in set(coordinates):
+                    kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, -%s);" %
+                                             (c, actual_gls))
                 while len(coordinates) < 4:
                     coordinates.append(0)
-
-                actual_gls = sp.Symbol(param.field_name + "->nrOfGhostLayers()") - ghost_layers_to_include
-                if required_ghost_layers > 0:
-                    kernel_call_lines.append("WALBERLA_CHECK_GREATER_EQUAL(%s, %s);" %
-                                             (actual_gls, required_ghost_layers))
                 kernel_call_lines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
                                          ((param.dtype, param.name, param.field_name) + tuple(coordinates)))
 
@@ -205,24 +254,24 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
                                          % (ast.function_name, param.name, param.name, len(strides), type_str))
 
         elif param.is_field_shape_argument:
-            offset = 2 * ghost_layers_to_include + 2 * required_ghost_layers
-            shape_names = ['xSize()', 'ySize()', 'zSize()', 'fSize()']
-            type_str = get_base_type(param.dtype).base_name
-            shape_names = ["%s(%s->%s + %s)" % (type_str, param.field_name, e, offset) for e in shape_names]
             field = fields[param.field_name]
-            shapes = shape_names[:field.spatial_dimensions]
-
+            type_str = get_base_type(param.dtype).base_name
+            shapes = ["%s(%s)" % (type_str, c) for c in get_end_coordinates(param)]
             spatial_shape_symbols = [sp.Symbol("%s_cpu[%d]" % (param.name, i)) for i in range(field.spatial_dimensions)]
+
+            max_values = ["%s->%sSizeWithGhostLayer()" % (field.name, coord) for coord in ['x', 'y', 'z']]
+            for shape, max_value in zip(shapes, max_values):
+                kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, %s)" % (max_value, shape))
 
             assert field.index_dimensions in (0, 1)
             if field.index_dimensions == 1:
-                shapes.append(shape_names[-1])
+                shapes.append("fSize()")
             if is_cpu:
                 kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
             else:
                 kernel_call_lines.append("const %s %s_cpu [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
-                kernel_call_lines.append("cudaMemcpyToSymbol(internal::%s, %s_cpu, %d * sizeof(%s));"
-                                         % (param.name, param.name, len(shapes), type_str))
+                kernel_call_lines.append("cudaMemcpyToSymbol(internal_%s::%s, %s_cpu, %d * sizeof(%s));"
+                                         % (ast.function_name, param.name, param.name, len(shapes), type_str))
 
     if not is_cpu:
         indexing_dict = ast.indexing.call_parameters(spatial_shape_symbols)
@@ -230,13 +279,16 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0):
                                      if p.is_field_ptr_argument or not p.is_field_argument])
         sp_printer_c = CustomSympyPrinter()
 
+        stream_str = ", 0 , " + stream if stream is not None else ""
         kernel_call_lines += [
             "dim3 _block(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['block']),
             "dim3 _grid(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['grid']),
-            "internal_%s::%s<<<_grid, _block>>>(%s);" % (ast.function_name, ast.function_name, call_parameters),
+            "internal_%s::%s<<<_grid, _block%s>>>(%s);" % (ast.function_name, ast.function_name,
+                                                           stream_str, call_parameters),
         ]
     else:
-        kernel_call_lines.append("internal_%s::%s(%s);" % (ast.function_name, ast.function_name, ", ".join([p.name for p in ast.parameters])))
+        kernel_call_lines.append("internal_%s::%s(%s);" %
+                                 (ast.function_name, ast.function_name, ", ".join([p.name for p in ast.parameters])))
     return "\n".join(kernel_call_lines)
 
 
@@ -297,3 +349,4 @@ def add_pystencils_filters_to_jinja_env(jinja_env):
     jinja_env.filters['generate_block_data_to_field_extraction'] = generate_block_data_to_field_extraction
     jinja_env.filters['generate_swaps'] = generate_swaps
     jinja_env.filters['generate_refs_for_kernel_parameters'] = generate_refs_for_kernel_parameters
+    jinja_env.filters['generate_field_parameters'] = generate_field_parameters
