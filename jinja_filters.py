@@ -261,11 +261,11 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
 
             max_values = ["%s->%sSizeWithGhostLayer()" % (field.name, coord) for coord in ['x', 'y', 'z']]
             for shape, max_value in zip(shapes, max_values):
-                kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, %s)" % (max_value, shape))
+                kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, %s);" % (max_value, shape))
 
             assert field.index_dimensions in (0, 1)
             if field.index_dimensions == 1:
-                shapes.append("fSize()")
+                shapes.append("%s(%s->fSize())" % (type_str, field.name))
             if is_cpu:
                 kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
             else:

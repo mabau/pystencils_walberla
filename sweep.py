@@ -4,7 +4,7 @@ import functools
 from jinja2 import Environment, PackageLoader
 
 from pystencils import kernel as kernel_decorator
-from pystencils import Field, SymbolCreator
+from pystencils import Field, SymbolCreator, create_kernel
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
 
 KernelInfo = namedtuple("KernelInfo", ['ast', 'temporary_fields', 'field_swaps'])
@@ -45,39 +45,33 @@ class Sweep:
 
     @staticmethod
     def generate(name, sweep_function, namespace='pystencils', target='cpu',
-                 dim=None, f_size=None, openmp=True):
+                 dim=None, f_size=None, optimization={},):
         from pystencils_walberla.cmake_integration import codegen
         sweep = Sweep(dim, f_size)
 
         func = functools.partial(kernel_decorator, sweep_function, sweep=sweep)
-        cb = functools.partial(Sweep._generate_header_and_source, func, name, target, openmp,
-                               namespace, sweep._temporary_fields, sweep._field_swaps)
+        cb = functools.partial(Sweep._generate_header_and_source, func, name, target,
+                               namespace, sweep._temporary_fields, sweep._field_swaps, optimization=optimization)
 
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
         codegen.register(file_names, cb)
 
     @staticmethod
     def generate_from_equations(name, function_returning_equations, temporary_fields=[], field_swaps=[],
-                                namespace="pystencils", target='cpu', openmp=True, **kwargs):
+                                namespace="pystencils", target='cpu', optimization={}, **kwargs):
         from pystencils_walberla.cmake_integration import codegen
-        cb = functools.partial(Sweep._generate_header_and_source, function_returning_equations, name, target, openmp,
-                               namespace, temporary_fields, field_swaps, **kwargs)
+        cb = functools.partial(Sweep._generate_header_and_source, function_returning_equations, name, target,
+                               namespace, temporary_fields, field_swaps, optimization=optimization, **kwargs)
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
         codegen.register(file_names, cb)
 
     @staticmethod
-    def _generate_header_and_source(function_returning_equations, name, target, openmp, namespace,
-                                    temporary_fields, field_swaps, **kwargs):
+    def _generate_header_and_source(function_returning_equations, name, target, namespace,
+                                    temporary_fields, field_swaps, optimization, **kwargs):
         eqs = function_returning_equations(**kwargs)
 
-        if target == 'cpu':
-            from pystencils.cpu import create_kernel, add_openmp
-            ast = create_kernel(eqs, function_name=name)
-            if openmp:
-                add_openmp(ast, num_threads=openmp)
-        elif target == 'gpu':
-            from pystencils.gpucuda.kernelcreation import create_cuda_kernel
-            ast = create_cuda_kernel(eqs, function_name=name)
+        ast = create_kernel(eqs, target=target, **optimization)
+        ast.function_name = name
 
         env = Environment(loader=PackageLoader('pystencils_walberla'))
         add_pystencils_filters_to_jinja_env(env)
