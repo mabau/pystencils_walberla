@@ -31,6 +31,13 @@
 #define FUNC_PREFIX __global__
 {%- endif %}
 
+#if ( defined WALBERLA_CXX_COMPILER_IS_GNU ) || ( defined WALBERLA_CXX_COMPILER_IS_CLANG )
+#   pragma GCC diagnostic push
+#   pragma GCC diagnostic ignored "-Wfloat-equal"
+#   pragma GCC diagnostic ignored "-Wshadow"
+#   pragma GCC diagnostic ignored "-Wconversion"
+#endif
+
 using namespace std;
 
 namespace walberla {
@@ -48,3 +55,8 @@ void {{class_name}}::operator() ( IBlock * block )
 
 } // namespace {{namespace}}
 } // namespace walberla
+
+
+#if ( defined WALBERLA_CXX_COMPILER_IS_GNU ) || ( defined WALBERLA_CXX_COMPILER_IS_CLANG )
+#   pragma GCC diagnostic pop
+#endif

@@ -5,7 +5,7 @@ from pystencils.astnodes import ResolvedFieldAccess
 from pystencils.data_types import get_base_type
 from pystencils.backends.cbackend import generate_c, CustomSympyPrinter
 from pystencils.field import FieldType
-
+from pystencils.sympyextensions import prod
 
 temporary_fieldTemplate = """
 // Getting temporary field {tmp_field_name}
@@ -32,10 +32,11 @@ def make_field_type(dtype, f_size, is_gpu):
 
 def get_field_fsize(field, field_accesses=()):
     if field.has_fixed_index_shape and field.index_dimensions > 0:
-        return field.index_shape[0]
+        return prod(field.index_shape)
     elif field.index_dimensions == 0:
         return 1
     else:
+        assert field.index_dimensions == 1
         max_idx_value = 0
         for acc in field_accesses:
             if acc.field == field and acc.idx_coordinate_values[0] > max_idx_value:
@@ -94,7 +95,6 @@ def field_extraction_code(field_accesses, field_name, is_temporary, declaration_
     field = fields[field_name]
 
     # Determine size of f coordinate which is a template parameter
-    assert field.index_dimensions <= 1
     f_size = get_field_fsize(field, field_accesses)
     dtype = get_base_type(field.dtype)
     field_type = "cuda::GPUField<%s>" % (dtype,) if is_gpu else "GhostLayerField<%s, %d>" % (dtype, f_size)
@@ -243,9 +243,14 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             stride_names = ["%s(%s->%s)" % (type_str, param.field_name, e) for e in stride_names]
             field = fields[param.field_name]
             strides = stride_names[:field.spatial_dimensions]
-            assert field.index_dimensions in (0, 1)
-            if field.index_dimensions == 1:
-                strides.append(stride_names[-1])
+            if field.index_dimensions > 0:
+                print("ind info", field.index_dimensions, field.index_shape)
+                additional_strides = [1]
+                for shape in reversed(field.index_shape[1:]):
+                    additional_strides.append(additional_strides[-1] * shape)
+                assert len(additional_strides) == field.index_dimensions
+                f_stride_name = stride_names[-1]
+                strides.extend(["%s(%d * %s)" % (type_str, e, f_stride_name) for e in reversed(additional_strides)])
             if is_cpu:
                 kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(strides)))
             else:
@@ -263,9 +268,12 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             for shape, max_value in zip(shapes, max_values):
                 kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, %s);" % (max_value, shape))
 
-            assert field.index_dimensions in (0, 1)
             if field.index_dimensions == 1:
                 shapes.append("%s(%s->fSize())" % (type_str, field.name))
+            elif field.index_dimensions > 1:
+                shapes.extend(["%s(%d)" % (type_str, e) for e in field.index_shape])
+                kernel_call_lines.append("WALBERLA_ASSERT_EQUAL(int(%s->fSize()),  %d);" %
+                                         (field.name, prod(field.index_shape)))
             if is_cpu:
                 kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
             else:
@@ -315,7 +323,11 @@ def generate_constructor_initializer_list(kernel_info, parameters_to_ignore=[]):
 
 def generate_constructor_parameters(kernel_info, parameters_to_ignore=[]):
     ast = kernel_info.ast
-    parameters_to_ignore += kernel_info.temporary_fields
+    varying_parameters = []
+    if hasattr(kernel_info, 'varying_parameters'):
+        varying_parameters = kernel_info.varying_parameters
+    varying_parameter_names = [e[1] for e in varying_parameters]
+    parameters_to_ignore += kernel_info.temporary_fields + varying_parameter_names
 
     parameter_list = []
     for param in ast.parameters:
@@ -323,7 +335,8 @@ def generate_constructor_parameters(kernel_info, parameters_to_ignore=[]):
             parameter_list.append("BlockDataID %sID_" % (param.field_name, ))
         elif not param.is_field_argument and param.name not in parameters_to_ignore:
             parameter_list.append("%s %s_" % (param.dtype, param.name,))
-    return ", ".join(parameter_list)
+    varying_parameters = ["%s %s_" % e for e in varying_parameters]
+    return ", ".join(parameter_list + varying_parameters)
 
 
 def generate_members(kernel_info, parameters_to_ignore=[]):

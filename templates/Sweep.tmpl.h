@@ -38,6 +38,10 @@
 #define RESTRICT
 #endif
 
+#if ( defined WALBERLA_CXX_COMPILER_IS_GNU ) || ( defined WALBERLA_CXX_COMPILER_IS_CLANG )
+#   pragma GCC diagnostic push
+#   pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 
 namespace walberla {
 namespace {{namespace}} {
@@ -59,3 +63,8 @@ private:
 
 } // namespace {{namespace}}
 } // namespace walberla
+
+
+#if ( defined WALBERLA_CXX_COMPILER_IS_GNU ) || ( defined WALBERLA_CXX_COMPILER_IS_CLANG )
+#   pragma GCC diagnostic pop
+#endif

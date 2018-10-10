@@ -3,11 +3,11 @@ from collections import namedtuple
 import functools
 from jinja2 import Environment, PackageLoader
 
-from pystencils import kernel as kernel_decorator
+from pystencils import kernel as kernel_decorator, create_staggered_kernel
 from pystencils import Field, SymbolCreator, create_kernel
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
 
-KernelInfo = namedtuple("KernelInfo", ['ast', 'temporary_fields', 'field_swaps'])
+KernelInfo = namedtuple("KernelInfo", ['ast', 'temporary_fields', 'field_swaps', 'varying_parameters'])
 
 
 class Sweep:
@@ -58,26 +58,33 @@ class Sweep:
 
     @staticmethod
     def generate_from_equations(name, function_returning_equations, temporary_fields=[], field_swaps=[],
-                                namespace="pystencils", target='cpu', optimization={}, **kwargs):
+                                namespace="pystencils", target='cpu', optimization={},
+                                staggered=False, varying_parameters=[], **kwargs):
         from pystencils_walberla.cmake_integration import codegen
         cb = functools.partial(Sweep._generate_header_and_source, function_returning_equations, name, target,
-                               namespace, temporary_fields, field_swaps, optimization=optimization, **kwargs)
+                               namespace, temporary_fields, field_swaps,
+                               optimization=optimization, staggered=staggered,
+                               varying_parameters=varying_parameters,**kwargs)
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
         codegen.register(file_names, cb)
 
     @staticmethod
     def _generate_header_and_source(function_returning_equations, name, target, namespace,
-                                    temporary_fields, field_swaps, optimization, **kwargs):
+                                    temporary_fields, field_swaps, optimization, staggered,
+                                    varying_parameters, **kwargs):
         eqs = function_returning_equations(**kwargs)
 
-        ast = create_kernel(eqs, target=target, **optimization)
+        if not staggered:
+            ast = create_kernel(eqs, target=target, **optimization)
+        else:
+            ast = create_staggered_kernel(*eqs, target=target, **optimization)
         ast.function_name = name
 
         env = Environment(loader=PackageLoader('pystencils_walberla'))
         add_pystencils_filters_to_jinja_env(env)
 
         context = {
-            'kernel': KernelInfo(ast, temporary_fields, field_swaps),
+            'kernel': KernelInfo(ast, temporary_fields, field_swaps, varying_parameters),
             'namespace': namespace,
             'class_name': ast.function_name[0].upper() + ast.function_name[1:],
             'target': target,
