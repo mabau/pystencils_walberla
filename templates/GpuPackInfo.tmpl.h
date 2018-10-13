@@ -2,6 +2,9 @@
 #include "core/cell/CellInterval.h"
 #include "cuda/GPUField.h"
 #include "core/DataTypes.h"
+#include "domain_decomposition/IBlock.h"
+#include "cuda/communication/GeneratedGPUPackInfo.h"
+
 
 {% if target is equalto 'cpu' -%}
 #define FUNC_PREFIX
@@ -13,12 +16,23 @@
 namespace walberla {
 namespace cuda {
 
-{% for dtype in dtypes %}
-uint_t packOnGPU(stencil::Direction dir, {{dtype}} * buffer, cell_idx_t thickness,
-                 GPUField<{{dtype}}> * f, cudaStream_t stream);
-uint_t unpackOnGPU(stencil::Direction dir, {{dtype}} * buffer, cell_idx_t thickness,
-                   GPUField<{{dtype}}> * f, cudaStream_t stream);
-{% endfor %}
+
+class {{class_name}} : public ::walberla::cuda::GeneratedGPUPackInfo
+{
+public:
+    {{class_name}}( {{fused_kernel|generate_constructor_parameters(parameters_to_ignore=['buffer'])}} )
+        : {{ fused_kernel|generate_constructor_initializer_list(parameters_to_ignore=['buffer']) }}
+    {};
+
+
+    virtual void pack  (stencil::Direction dir, unsigned char * buffer, IBlock * block, cudaStream_t stream);
+    virtual void unpack(stencil::Direction dir, unsigned char * buffer, IBlock * block, cudaStream_t stream);
+    virtual uint_t size  (stencil::Direction dir, IBlock * block);
+
+private:
+    {{fused_kernel|generate_members(parameters_to_ignore=['buffer'])|indent(4)}}
+};
+
 
 } // namespace cuda
 } // namespace walberla
