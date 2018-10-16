@@ -57,16 +57,28 @@ class Sweep:
         codegen.register(file_names, cb)
 
     @staticmethod
-    def generate_from_equations(name, function_returning_equations, temporary_fields=[], field_swaps=[],
+    def generate_from_equations(name, function_returning_assignments, temporary_fields=[], field_swaps=[],
                                 namespace="pystencils", target='cpu', optimization={},
                                 staggered=False, varying_parameters=[], **kwargs):
         from pystencils_walberla.cmake_integration import codegen
-        cb = functools.partial(Sweep._generate_header_and_source, function_returning_equations, name, target,
+        cb = functools.partial(Sweep._generate_header_and_source, function_returning_assignments, name, target,
                                namespace, temporary_fields, field_swaps,
                                optimization=optimization, staggered=staggered,
-                               varying_parameters=varying_parameters,**kwargs)
+                               varying_parameters=varying_parameters, **kwargs)
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
         codegen.register(file_names, cb)
+
+    @staticmethod
+    def generate_pack_info(name, function_returning_assignments, target='gpu', **kwargs):
+        from pystencils_walberla.cmake_integration import codegen
+
+        def callback():
+            from pystencils_walberla.generate_packinfo import generate_pack_info_from_kernel
+            assignments = function_returning_assignments()
+            return generate_pack_info_from_kernel(name, assignments, target=target, **kwargs)
+
+        file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
+        codegen.register(file_names, callback)
 
     @staticmethod
     def _generate_header_and_source(function_returning_equations, name, target, namespace,

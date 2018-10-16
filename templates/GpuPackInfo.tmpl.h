@@ -14,7 +14,7 @@
 
 
 namespace walberla {
-namespace cuda {
+namespace {{namespace}} {
 
 
 class {{class_name}} : public ::walberla::cuda::GeneratedGPUPackInfo
@@ -34,5 +34,5 @@ private:
 };
 
 
-} // namespace cuda
+} // namespace {{namespace}}
 } // namespace walberla

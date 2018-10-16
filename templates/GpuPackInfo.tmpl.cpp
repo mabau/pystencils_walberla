@@ -13,15 +13,18 @@
 
 
 namespace walberla {
-namespace cuda {
+namespace {{namespace}} {
 
 using walberla::cell::CellInterval;
 using walberla::stencil::Direction;
 
 
-{% for kernel in kernels.values() %}
-{{kernel[0]|generate_definition}}
-{{kernel[1]|generate_definition}}
+{% for kernel in pack_kernels.values() %}
+{{kernel|generate_definition}}
+{% endfor %}
+
+{% for kernel in unpack_kernels.values() %}
+{{kernel|generate_definition}}
 {% endfor %}
 
 
@@ -32,16 +35,16 @@ void {{class_name}}::pack(Direction dir, unsigned char * byte_buffer, IBlock * b
 
     {{fused_kernel|generate_block_data_to_field_extraction(parameters_to_ignore=['buffer'])|indent(4)}}
     CellInterval ci;
-    f->getSliceBeforeGhostLayer(dir, ci, 1, false);
+    {{field_name}}->getSliceBeforeGhostLayer(dir, ci, 1, false);
 
     switch( dir )
     {
-        {%- for direction_set, kernel in kernels.items()  %}
+        {%- for direction_set, kernel in pack_kernels.items()  %}
         {%- for dir in direction_set %}
         case stencil::{{dir}}:
         {%- endfor %}
         {
-            {{kernel[0]|generate_call(cell_interval="ci", stream="stream")|indent(12)}}
+            {{kernel|generate_call(cell_interval="ci", stream="stream")|indent(12)}}
             break;
         }
         {% endfor %}
@@ -58,16 +61,16 @@ void {{class_name}}::unpack(Direction dir, unsigned char * byte_buffer, IBlock *
 
     {{fused_kernel|generate_block_data_to_field_extraction(parameters_to_ignore=['buffer'])|indent(4)}}
     CellInterval ci;
-    f->getGhostRegion(dir, ci, 1, false);
+    {{field_name}}->getGhostRegion(dir, ci, 1, false);
 
     switch( dir )
     {
-        {%- for direction_set, kernel in kernels.items()  %}
+        {%- for direction_set, kernel in unpack_kernels.items()  %}
         {%- for dir in direction_set %}
         case stencil::{{dir}}:
         {%- endfor %}
         {
-            {{kernel[1]|generate_call(cell_interval="ci", stream="stream")|indent(12)}}
+            {{kernel|generate_call(cell_interval="ci", stream="stream")|indent(12)}}
             break;
         }
         {% endfor %}
@@ -82,7 +85,7 @@ uint_t {{class_name}}::size(stencil::Direction dir, IBlock * block)
 {
     {{fused_kernel|generate_block_data_to_field_extraction(parameters_to_ignore=['buffer'])|indent(4)}}
     CellInterval ci;
-    f->getGhostRegion(dir, ci, 1, false);
+    {{field_name}}->getGhostRegion(dir, ci, 1, false);
 
     uint_t elementsPerCell = 0;
 
@@ -103,5 +106,5 @@ uint_t {{class_name}}::size(stencil::Direction dir, IBlock * block)
 
 
 
-} // namespace cuda
+} // namespace {{namespace}}
 } // namespace walberla

@@ -106,7 +106,7 @@ def field_extraction_code(field_accesses, field_name, is_temporary, declaration_
             return "%s * %s;" % (field_type, field_name)
         else:
             prefix = "" if no_declaration else "auto "
-            return "%s%s = block->getData< %s >(%sID);" % (prefix, field_name, field_type, field_name)
+            return "%s%s = block->uncheckedFastGetData< %s >(%sID);" % (prefix, field_name, field_type, field_name)
     else:
         assert field_name.endswith('_tmp')
         original_field_name = field_name[:-len('_tmp')]
@@ -135,7 +135,7 @@ def generate_field_parameters(ctx, kernel_info, parameters_to_ignore=[]):
 def generate_block_data_to_field_extraction(ctx, kernel_info, parameters_to_ignore=[], parameters=None,
                                             declarations_only=False, no_declarations=False):
     ast = kernel_info.ast
-    field_accesses = ast.atoms(ResolvedFieldAccess)
+    field_accesses = [a for a in ast.atoms(ResolvedFieldAccess) if a.field.name not in parameters_to_ignore]
 
     if parameters is not None:
         assert parameters_to_ignore == []
@@ -165,7 +165,7 @@ def generate_refs_for_kernel_parameters(kernel_info, prefix, parameters_to_ignor
 
 
 @jinja2.contextfilter
-def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=None, stream=None):
+def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=None, stream='0'):
     """Generates the function call to a pystencils kernel
 
     Args:
@@ -244,7 +244,6 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             field = fields[param.field_name]
             strides = stride_names[:field.spatial_dimensions]
             if field.index_dimensions > 0:
-                print("ind info", field.index_dimensions, field.index_shape)
                 additional_strides = [1]
                 for shape in reversed(field.index_shape[1:]):
                     additional_strides.append(additional_strides[-1] * shape)
@@ -255,8 +254,9 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
                 kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(strides)))
             else:
                 kernel_call_lines.append("const %s %s_cpu [] = {%s};" % (type_str, param.name, ", ".join(strides)))
-                kernel_call_lines.append("cudaMemcpyToSymbol(internal_%s::%s, %s_cpu, %d * sizeof(%s));"
-                                         % (ast.function_name, param.name, param.name, len(strides), type_str))
+                kernel_call_lines.append(
+                    "WALBERLA_CUDA_CHECK( cudaMemcpyToSymbolAsync(internal_%s::%s, %s_cpu, %d * sizeof(%s), 0, cudaMemcpyHostToDevice, %s) );"
+                    % (ast.function_name, param.name, param.name, len(strides), type_str, stream))
 
         elif param.is_field_shape_argument:
             field = fields[param.field_name]
@@ -278,8 +278,9 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
                 kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
             else:
                 kernel_call_lines.append("const %s %s_cpu [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
-                kernel_call_lines.append("cudaMemcpyToSymbol(internal_%s::%s, %s_cpu, %d * sizeof(%s));"
-                                         % (ast.function_name, param.name, param.name, len(shapes), type_str))
+                kernel_call_lines.append(
+                    "WALBERLA_CUDA_CHECK( cudaMemcpyToSymbolAsync(internal_%s::%s, %s_cpu, %d * sizeof(%s), 0, cudaMemcpyHostToDevice, %s) );"
+                    % (ast.function_name, param.name, param.name, len(shapes), type_str, stream))
 
     if not is_cpu:
         indexing_dict = ast.indexing.call_parameters(spatial_shape_symbols)
@@ -287,12 +288,11 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
                                      if p.is_field_ptr_argument or not p.is_field_argument])
         sp_printer_c = CustomSympyPrinter()
 
-        stream_str = ", 0 , " + stream if stream is not None else ""
         kernel_call_lines += [
             "dim3 _block(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['block']),
             "dim3 _grid(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['grid']),
-            "internal_%s::%s<<<_grid, _block%s>>>(%s);" % (ast.function_name, ast.function_name,
-                                                           stream_str, call_parameters),
+            "internal_%s::%s<<<_grid, _block, 0, %s>>>(%s);" % (ast.function_name, ast.function_name,
+                                                                stream, call_parameters),
         ]
     else:
         kernel_call_lines.append("internal_%s::%s(%s);" %
