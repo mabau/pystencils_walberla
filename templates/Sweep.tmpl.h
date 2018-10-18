@@ -50,14 +50,20 @@ namespace {{namespace}} {
 class {{class_name}}
 {
 public:
-    {{class_name}}( {{kernel|generate_constructor_parameters}} )
-        : {{ kernel|generate_constructor_initializer_list }}
+    {{class_name}}( {{kernel|generate_constructor_parameters}}{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %})
+        : {{ kernel|generate_constructor_initializer_list }}, stream_(stream)
     {};
 
     void operator() ( IBlock * block );
 
+    void inner( IBlock * block );
+    void outer( IBlock * block );
+
 private:
     {{kernel|generate_members|indent(4)}}
+    {%if target is equalto 'gpu'%}
+    cudaStream_t stream_;
+    {% endif %}
 };
 
 

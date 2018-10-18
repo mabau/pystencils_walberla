@@ -4,21 +4,23 @@ import copy
 from pystencils.astnodes import ResolvedFieldAccess
 from pystencils.data_types import get_base_type
 from pystencils.backends.cbackend import generate_c, CustomSympyPrinter
-from pystencils.field import FieldType
+from pystencils.field import FieldType, Field
 from pystencils.sympyextensions import prod
+
+temporary_fieldMemberTemplate = """
+std::set< {type} *, field::SwapableCompare< {type} * > > cache_{original_field_name}_;"""
 
 temporary_fieldTemplate = """
 // Getting temporary field {tmp_field_name}
-static std::set< {type} *, field::SwapableCompare< {type} * > > cache_{original_field_name};
-auto it = cache_{original_field_name}.find( {original_field_name} );
-if( it != cache_{original_field_name}.end() )
+auto it = cache_{original_field_name}_.find( {original_field_name} );
+if( it != cache_{original_field_name}_.end() )
 {{
     {tmp_field_name} = *it;
 }}
 else 
 {{
     {tmp_field_name} = {original_field_name}->cloneUninitialized();
-    cache_{original_field_name}.insert({tmp_field_name});
+    cache_{original_field_name}_.insert({tmp_field_name});
 }}
 """
 
@@ -36,6 +38,7 @@ def get_field_fsize(field, field_accesses=()):
     elif field.index_dimensions == 0:
         return 1
     else:
+        assert len(field_accesses) > 0
         assert field.index_dimensions == 1
         max_idx_value = 0
         for acc in field_accesses:
@@ -97,7 +100,7 @@ def field_extraction_code(field_accesses, field_name, is_temporary, declaration_
     # Determine size of f coordinate which is a template parameter
     f_size = get_field_fsize(field, field_accesses)
     dtype = get_base_type(field.dtype)
-    field_type = "cuda::GPUField<%s>" % (dtype,) if is_gpu else "GhostLayerField<%s, %d>" % (dtype, f_size)
+    field_type = make_field_type(dtype, f_size, is_gpu)
 
     if not is_temporary:
         dtype = get_base_type(field.dtype)
@@ -182,6 +185,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
     """
     assert isinstance(ghost_layers_to_include, str) or ghost_layers_to_include >= 0
     ast = kernel_info.ast
+    ast_params = kernel_info.ast.parameters
 
     ghost_layers_to_include = sp.sympify(ghost_layers_to_include)
     if ast.ghost_layers is None:
@@ -195,10 +199,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
     kernel_call_lines = []
     fields = {f.name: f for f in ast.fields_accessed}
 
-    spatial_shape_symbols = []
-
-    def get_start_coordinates(parameter):
-        field_object = fields[parameter.field_name]
+    def get_start_coordinates(field_object):
         if cell_interval is None:
             return [-ghost_layers_to_include - required_ghost_layers] * field_object.spatial_dimensions
         else:
@@ -206,19 +207,43 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             return [sp.Symbol("{ci}.{coord}Min()".format(coord=coord, ci=cell_interval)) - required_ghost_layers
                     for coord in ('x', 'y', 'z')]
 
-    def get_end_coordinates(parameter):
-        field_object = fields[parameter.field_name]
+    def get_end_coordinates(field_object):
         if cell_interval is None:
             shape_names = ['xSize()', 'ySize()', 'zSize()'][:field_object.spatial_dimensions]
             offset = 2 * ghost_layers_to_include + 2 * required_ghost_layers
-            return ["%s->%s + %s" % (parameter.field_name, e, offset) for e in shape_names]
+            return ["%s->%s + %s" % (field_object.name, e, offset) for e in shape_names]
         else:
             assert ghost_layers_to_include == 0
             coord_names = ['x', 'y', 'z'][:field_object.spatial_dimensions]
-            return ["{ci}.{coord}Size() + {gl}".format(coord=coord, ci=cell_interval, gl=required_ghost_layers)
+            return ["{ci}.{coord}Size() + {gl}".format(coord=coord, ci=cell_interval, gl=2 * required_ghost_layers)
                     for coord in coord_names]
 
-    for param in ast.parameters:
+    def create_field_shape_code(field, param_name, gpu_copy=True):
+        result = []
+        type_str = get_base_type(Field.SHAPE_DTYPE).base_name
+        shapes = ["%s(%s)" % (type_str, c) for c in get_end_coordinates(field)]
+
+        max_values = ["%s->%sSizeWithGhostLayer()" % (field.name, coord) for coord in ['x', 'y', 'z']]
+        for shape, max_value in zip(shapes, max_values):
+            result.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, %s);" % (max_value, shape))
+
+        if field.index_dimensions == 1:
+            shapes.append("%s(%s->fSize())" % (type_str, field.name))
+        elif field.index_dimensions > 1:
+            shapes.extend(["%s(%d)" % (type_str, e) for e in field.index_shape])
+            result.append("WALBERLA_ASSERT_EQUAL(int(%s->fSize()),  %d);" %
+                                     (field.name, prod(field.index_shape)))
+        if is_cpu or not gpu_copy:
+            result.append("const %s %s [] = {%s};" % (type_str, param_name, ", ".join(shapes)))
+        else:
+            result.append("const %s %s_cpu [] = {%s};" % (type_str, param_name, ", ".join(shapes)))
+            result.append(
+                "WALBERLA_CUDA_CHECK( cudaMemcpyToSymbolAsync(internal_%s::%s, %s_cpu, %d * sizeof(%s), "
+                "0, cudaMemcpyHostToDevice, %s) );"
+                % (ast.function_name, param_name, param_name, len(shapes), type_str, stream))
+        return result
+
+    for param in ast_params:
         if param.is_field_argument and FieldType.is_indexed(fields[param.field_name]):
             continue
 
@@ -227,7 +252,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             if field.field_type == FieldType.BUFFER:
                 kernel_call_lines.append("%s %s = %s;" % (param.dtype, param.name, param.field_name))
             else:
-                coordinates = get_start_coordinates(param)
+                coordinates = get_start_coordinates(field)
                 actual_gls = "int_c(%s->nrOfGhostLayers())" % (param.field_name, )
                 for c in set(coordinates):
                     kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, -%s);" %
@@ -255,36 +280,32 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             else:
                 kernel_call_lines.append("const %s %s_cpu [] = {%s};" % (type_str, param.name, ", ".join(strides)))
                 kernel_call_lines.append(
-                    "WALBERLA_CUDA_CHECK( cudaMemcpyToSymbolAsync(internal_%s::%s, %s_cpu, %d * sizeof(%s), 0, cudaMemcpyHostToDevice, %s) );"
+                    "WALBERLA_CUDA_CHECK( cudaMemcpyToSymbolAsync(internal_%s::%s, %s_cpu, %d * sizeof(%s), "
+                    "0, cudaMemcpyHostToDevice, %s) );"
                     % (ast.function_name, param.name, param.name, len(strides), type_str, stream))
 
         elif param.is_field_shape_argument:
-            field = fields[param.field_name]
-            type_str = get_base_type(param.dtype).base_name
-            shapes = ["%s(%s)" % (type_str, c) for c in get_end_coordinates(param)]
-            spatial_shape_symbols = [sp.Symbol("%s_cpu[%d]" % (param.name, i)) for i in range(field.spatial_dimensions)]
-
-            max_values = ["%s->%sSizeWithGhostLayer()" % (field.name, coord) for coord in ['x', 'y', 'z']]
-            for shape, max_value in zip(shapes, max_values):
-                kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, %s);" % (max_value, shape))
-
-            if field.index_dimensions == 1:
-                shapes.append("%s(%s->fSize())" % (type_str, field.name))
-            elif field.index_dimensions > 1:
-                shapes.extend(["%s(%d)" % (type_str, e) for e in field.index_shape])
-                kernel_call_lines.append("WALBERLA_ASSERT_EQUAL(int(%s->fSize()),  %d);" %
-                                         (field.name, prod(field.index_shape)))
-            if is_cpu:
-                kernel_call_lines.append("const %s %s [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
-            else:
-                kernel_call_lines.append("const %s %s_cpu [] = {%s};" % (type_str, param.name, ", ".join(shapes)))
-                kernel_call_lines.append(
-                    "WALBERLA_CUDA_CHECK( cudaMemcpyToSymbolAsync(internal_%s::%s, %s_cpu, %d * sizeof(%s), 0, cudaMemcpyHostToDevice, %s) );"
-                    % (ast.function_name, param.name, param.name, len(shapes), type_str, stream))
+            kernel_call_lines += create_field_shape_code(fields[param.field_name], param.name)
 
     if not is_cpu:
+        spatial_shape_symbols = []
+        for param in ast_params:
+            if param.is_field_shape_argument:
+                spatial_shape_symbols = [sp.Symbol("%s_cpu[%d]" % (param.name, i))
+                                         for i in range(field.spatial_dimensions)]
+
+        if not spatial_shape_symbols:
+            for param in ast_params:
+                if not param.is_field_argument:
+                    continue
+                field = fields[param.field_name]
+                if field.field_type == FieldType.GENERIC:
+                    kernel_call_lines += create_field_shape_code(field, '_size', gpu_copy=False)
+                    spatial_shape_symbols = [sp.Symbol("_size[%d]" % (i, )) for i in range(field.spatial_dimensions)]
+                    break
+
         indexing_dict = ast.indexing.call_parameters(spatial_shape_symbols)
-        call_parameters = ", ".join([p.name for p in ast.parameters
+        call_parameters = ", ".join([p.name for p in ast_params
                                      if p.is_field_ptr_argument or not p.is_field_argument])
         sp_printer_c = CustomSympyPrinter()
 
@@ -296,7 +317,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
         ]
     else:
         kernel_call_lines.append("internal_%s::%s(%s);" %
-                                 (ast.function_name, ast.function_name, ", ".join([p.name for p in ast.parameters])))
+                                 (ast.function_name, ast.function_name, ", ".join([p.name for p in ast_params])))
     return "\n".join(kernel_call_lines)
 
 
@@ -339,16 +360,36 @@ def generate_constructor_parameters(kernel_info, parameters_to_ignore=[]):
     return ", ".join(parameter_list + varying_parameters)
 
 
-def generate_members(kernel_info, parameters_to_ignore=[]):
+@jinja2.contextfilter
+def generate_members(ctx, kernel_info, parameters_to_ignore=None, only_fields=False):
+    if parameters_to_ignore is None:
+        parameters_to_ignore = []
+
     ast = kernel_info.ast
-    parameters_to_ignore += kernel_info.temporary_fields
+    fields = {f.name: f for f in ast.fields_accessed}
+    params_to_skip = parameters_to_ignore + kernel_info.temporary_fields
+    is_gpu = ctx['target'] == 'gpu'
 
     result = []
     for param in ast.parameters:
-        if param.is_field_ptr_argument and param.field_name not in parameters_to_ignore:
+        if only_fields and not param.is_field_argument:
+            continue
+
+        if param.is_field_ptr_argument and param.field_name not in params_to_skip:
             result.append("BlockDataID %sID;" % (param.field_name, ))
-        elif not param.is_field_argument and param.name not in parameters_to_ignore:
+        elif not param.is_field_argument and param.name not in params_to_skip:
             result.append("%s %s;" % (param.dtype, param.name,))
+
+    for field_name in kernel_info.temporary_fields:
+        f = fields[field_name]
+        if field_name in parameters_to_ignore:
+            continue
+        assert field_name.endswith('_tmp')
+        original_field_name = field_name[:-len('_tmp')]
+        f_size = get_field_fsize(f)
+        field_type = make_field_type(get_base_type(f.dtype), f_size, is_gpu)
+        result.append(temporary_fieldMemberTemplate.format(type=field_type, original_field_name=original_field_name))
+
     return "\n".join(result)
 
 

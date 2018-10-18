@@ -49,9 +49,73 @@ namespace {{namespace}} {
 void {{class_name}}::operator() ( IBlock * block )
 {
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
-    {{kernel|generate_call|indent(4)}}
+    {{kernel|generate_call(stream='stream_')|indent(4)}}
     {{kernel|generate_swaps|indent(4)}}
 }
+
+
+
+void {{class_name}}::inner( IBlock * block )
+{
+    {{kernel|generate_block_data_to_field_extraction|indent(4)}}
+
+    CellInterval inner = {{field}}->xyzSize();
+    inner.expand(-1);
+
+    {{kernel|generate_call(stream='stream_', cell_interval='inner')|indent(4)}}
+}
+
+
+void {{class_name}}::outer( IBlock * block )
+{
+    static std::vector<CellInterval> layers;
+    {%if target is equalto 'gpu'%}
+    static std::vector<cudaStream_t> streams;
+    {% endif %}
+
+    {{kernel|generate_block_data_to_field_extraction|indent(4)}}
+
+    if( layers.size() == 0 )
+    {
+        CellInterval ci;
+
+        {{field}}->getSliceBeforeGhostLayer(stencil::T, ci, 1, false);
+        layers.push_back(ci);
+        {{field}}->getSliceBeforeGhostLayer(stencil::B, ci, 1, false);
+        layers.push_back(ci);
+
+        {{field}}->getSliceBeforeGhostLayer(stencil::N, ci, 1, false);
+        ci.expand(Cell(0, 0, -1));
+        layers.push_back(ci);
+        {{field}}->getSliceBeforeGhostLayer(stencil::S, ci, 1, false);
+        ci.expand(Cell(0, 0, -1));
+        layers.push_back(ci);
+
+        {{field}}->getSliceBeforeGhostLayer(stencil::E, ci, 1, false);
+        ci.expand(Cell(0, -1, -1));
+        layers.push_back(ci);
+        {{field}}->getSliceBeforeGhostLayer(stencil::W, ci, 1, false);
+        ci.expand(Cell(0, -1, -1));
+        layers.push_back(ci);
+
+        {%if target is equalto 'gpu'%}
+        for( int i=0; i < layers.size(); ++i )
+        {
+            streams.push_back(cudaStream_t());
+            WALBERLA_CUDA_CHECK( cudaStreamCreate(&streams.back() ) );
+        }
+        {% endif %}
+    }
+
+    for( int i=0; i < layers.size(); ++i )
+    {
+        {{kernel|generate_call(stream='streams[i]', cell_interval="layers[i]")|indent(8)}}
+        WALBERLA_CUDA_CHECK(cudaStreamSynchronize(streams[i])); // TODO move out when no memcpy is needed to setup call
+    }
+
+    {{kernel|generate_swaps|indent(4)}}
+}
+
 
 } // namespace {{namespace}}
 } // namespace walberla

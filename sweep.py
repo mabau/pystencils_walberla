@@ -51,7 +51,8 @@ class Sweep:
 
         func = functools.partial(kernel_decorator, sweep_function, sweep=sweep)
         cb = functools.partial(Sweep._generate_header_and_source, func, name, target,
-                               namespace, sweep._temporary_fields, sweep._field_swaps, optimization=optimization)
+                               namespace, sweep._temporary_fields, sweep._field_swaps, optimization=optimization,
+                               staggered=False, varying_parameters=[])
 
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
         codegen.register(file_names, cb)
@@ -95,11 +96,14 @@ class Sweep:
         env = Environment(loader=PackageLoader('pystencils_walberla'))
         add_pystencils_filters_to_jinja_env(env)
 
+        representative_field = {p.field_name for p in ast.parameters if p.is_field_argument}.pop()
+
         context = {
             'kernel': KernelInfo(ast, temporary_fields, field_swaps, varying_parameters),
             'namespace': namespace,
             'class_name': ast.function_name[0].upper() + ast.function_name[1:],
             'target': target,
+            'field': representative_field,
         }
 
         header = env.get_template("Sweep.tmpl.h").render(**context)
