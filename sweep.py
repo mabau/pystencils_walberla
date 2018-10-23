@@ -61,13 +61,53 @@ class Sweep:
     def generate_from_equations(name, function_returning_assignments, temporary_fields=[], field_swaps=[],
                                 namespace="pystencils", target='cpu', optimization={},
                                 staggered=False, varying_parameters=[], **kwargs):
-        from pystencils_walberla.cmake_integration import codegen
+
         cb = functools.partial(Sweep._generate_header_and_source, function_returning_assignments, name, target,
                                namespace, temporary_fields, field_swaps,
                                optimization=optimization, staggered=staggered,
                                varying_parameters=varying_parameters, **kwargs)
+
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
+        from pystencils_walberla.cmake_integration import codegen
         codegen.register(file_names, cb)
+
+    @staticmethod
+    def generate_inner_outer_kernel(name, function_returning_assignments, temporary_fields=[], field_swaps=[],
+                                    namespace="pystencils", target='cpu', optimization={}, outer_optimization={},
+                                    varying_parameters=[], **kwargs):
+        def generate_callback():
+            eqs = function_returning_assignments(**kwargs)
+
+            ast = create_kernel(eqs, target=target, **optimization)
+            ast.function_name = name
+
+            outer_kernels = {}
+            for dir_str in ('T', 'B', 'N', 'S', 'E', 'W'):
+                outer_kernel = create_kernel(eqs, target=target, **outer_optimization)
+                outer_kernel.function_name = name + "_" + dir_str
+                outer_kernels[dir_str] = KernelInfo(outer_kernel, temporary_fields, field_swaps, varying_parameters)
+
+            env = Environment(loader=PackageLoader('pystencils_walberla'))
+            add_pystencils_filters_to_jinja_env(env)
+
+            representative_field = {p.field_name for p in ast.parameters if p.is_field_argument}.pop()
+
+            context = {
+                'kernel': KernelInfo(ast, temporary_fields, field_swaps, varying_parameters),
+                'namespace': namespace,
+                'class_name': ast.function_name[0].upper() + ast.function_name[1:],
+                'target': target,
+                'field': representative_field,
+                'outer_kernels': outer_kernels,
+            }
+
+            header = env.get_template("SweepInnerOuter.tmpl.h").render(**context)
+            source = env.get_template("SweepInnerOuter.tmpl.cpp").render(**context)
+            return header, source
+
+        file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
+        from pystencils_walberla.cmake_integration import codegen
+        codegen.register(file_names, generate_callback)
 
     @staticmethod
     def generate_pack_info(name, function_returning_assignments, target='gpu', **kwargs):
@@ -81,11 +121,12 @@ class Sweep:
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
         codegen.register(file_names, callback)
 
+
     @staticmethod
-    def _generate_header_and_source(function_returning_equations, name, target, namespace,
+    def _generate_header_and_source(function_returning_assignments, name, target, namespace,
                                     temporary_fields, field_swaps, optimization, staggered,
                                     varying_parameters, **kwargs):
-        eqs = function_returning_equations(**kwargs)
+        eqs = function_returning_assignments(**kwargs)
 
         if not staggered:
             ast = create_kernel(eqs, target=target, **optimization)
@@ -96,16 +137,14 @@ class Sweep:
         env = Environment(loader=PackageLoader('pystencils_walberla'))
         add_pystencils_filters_to_jinja_env(env)
 
-        representative_field = {p.field_name for p in ast.parameters if p.is_field_argument}.pop()
-
         context = {
             'kernel': KernelInfo(ast, temporary_fields, field_swaps, varying_parameters),
             'namespace': namespace,
             'class_name': ast.function_name[0].upper() + ast.function_name[1:],
             'target': target,
-            'field': representative_field,
         }
 
         header = env.get_template("Sweep.tmpl.h").render(**context)
         source = env.get_template("Sweep.tmpl.cpp").render(**context)
         return header, source
+

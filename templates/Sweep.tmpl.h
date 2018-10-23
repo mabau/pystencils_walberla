@@ -55,10 +55,6 @@ public:
     {};
 
     void operator() ( IBlock * block );
-
-    void inner( IBlock * block );
-    void outer( IBlock * block );
-
 private:
     {{kernel|generate_members|indent(4)}}
     {%if target is equalto 'gpu'%}
