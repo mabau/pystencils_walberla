@@ -24,22 +24,22 @@ class Sweep:
         """Create a symbolic constant that is passed to the sweep as a parameter"""
         return sp.Symbol(name)
 
-    def field(self, name, f_size=None):
+    def field(self, name, f_size=None, dtype='float64'):
         """Create a symbolic field that is passed to the sweep as BlockDataID"""
         # layout does not matter, since it is only used to determine order of spatial loops i.e. zyx, which is
         # always the same in walberla
         if self.dim is None:
             raise ValueError("Set the dimension of the sweep first, e.g. sweep.dim=3")
-        return Field.create_generic(name, spatial_dimensions=self.dim, index_dimensions=1 if f_size else 0,
+        return Field.create_generic(name, dtype=dtype, spatial_dimensions=self.dim, index_dimensions=1 if f_size else 0,
                                     layout='fzyx', index_shape=(f_size,) if f_size else None)
 
-    def temporary_field(self, field, tmp_field_name=None):
+    def temporary_field(self, field, tmp_field_name=None, dtype='float64'):
         """Creates a temporary field as clone of field, which is swapped at the end of the sweep"""
         if tmp_field_name is None:
             tmp_field_name = field.name + "_tmp"
         self._temporary_fields.append(tmp_field_name)
         self._field_swaps.append((tmp_field_name, field.name))
-        return Field.create_generic(tmp_field_name, spatial_dimensions=field.spatial_dimensions,
+        return Field.create_generic(tmp_field_name, dtype=dtype, spatial_dimensions=field.spatial_dimensions,
                                     index_dimensions=field.index_dimensions, layout=field.layout,
                                     index_shape=field.index_shape)
 
