@@ -106,21 +106,3 @@ def generate_pack_info(class_name: str,
     header = env.get_template("GpuPackInfo.tmpl.h").render(**context)
     source = env.get_template("GpuPackInfo.tmpl.cpp").render(**context)
     return header, source
-
-
-if __name__ == '__main__':
-    from lbmpy.creationfunctions import create_lb_update_rule
-    ur = create_lb_update_rule(stencil='D2Q9')
-    header, source = generate_pack_info_from_kernel('D2Q9PackInfo', ur.main_assignments, target='gpu')
-    print(header, file=open('/local/bauer/code/walberla/tests/cuda/D2Q9PackInfo.h', 'w'))
-    print(source, file=open('/local/bauer/code/walberla/tests/cuda/D2Q9PackInfo.cu', 'w'))
-    print("Done")
-
-
-if __name__ == '__main__2':
-    f = Field.create_generic('f', spatial_dimensions=3, index_dimensions=0, layout='fzyx')
-
-    header, source = generate_pack_info_for_field('GenGpuPackInfo', f, target='gpu')
-    print(header, file=open('/local/bauer/code/walberla/tests/cuda/GenGpuPackInfo.h', 'w'))
-    print(source, file=open('/local/bauer/code/walberla/tests/cuda/GenGpuPackInfo.cu', 'w'))
-    print("Done")
