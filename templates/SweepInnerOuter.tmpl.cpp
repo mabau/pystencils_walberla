@@ -50,32 +50,29 @@ namespace {{namespace}} {
 {% endfor %}
 
 
-void {{class_name}}::operator() ( IBlock * block )
+void {{class_name}}::operator() ( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream{% endif %} )
 {
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
-    {{kernel|generate_call(stream='stream_')|indent(4)}}
+    {{kernel|generate_call(stream='stream')|indent(4)}}
     {{kernel|generate_swaps|indent(4)}}
 }
 
 
 
-void {{class_name}}::inner( IBlock * block )
+void {{class_name}}::inner( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream{% endif %} )
 {
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
 
     CellInterval inner = {{field}}->xyzSize();
     inner.expand(-1);
 
-    {{kernel|generate_call(stream='stream_', cell_interval='inner')|indent(4)}}
+    {{kernel|generate_call(stream='stream', cell_interval='inner')|indent(4)}}
 }
 
 
-void {{class_name}}::outer( IBlock * block )
+void {{class_name}}::outer( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream {% endif %} )
 {
     static std::vector<CellInterval> layers;
-    {%if target is equalto 'gpu'%}
-    static std::vector<cudaStream_t> streams;
-    {% endif %}
 
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
 
@@ -101,25 +98,30 @@ void {{class_name}}::outer( IBlock * block )
         {{field}}->getSliceBeforeGhostLayer(stencil::W, ci, 1, false);
         ci.expand(Cell(0, -1, -1));
         layers.push_back(ci);
-
-        {%if target is equalto 'gpu'%}
-        for( int i=0; i < layers.size(); ++i )
-        {
-            streams.push_back(cudaStream_t());
-            WALBERLA_CUDA_CHECK( cudaStreamCreateWithPriority(&streams.back(), cudaStreamDefault, -1) );
-        }
-        {% endif %}
     }
 
-    { {{outer_kernels['W']|generate_call(stream='streams[5]', cell_interval="layers[5]")|indent(4)}} }
-    { {{outer_kernels['E']|generate_call(stream='streams[4]', cell_interval="layers[4]")|indent(4)}} }
-    { {{outer_kernels['S']|generate_call(stream='streams[3]', cell_interval="layers[3]")|indent(4)}} }
-    { {{outer_kernels['N']|generate_call(stream='streams[2]', cell_interval="layers[2]")|indent(4)}} }
-    { {{outer_kernels['B']|generate_call(stream='streams[1]', cell_interval="layers[1]")|indent(4)}} }
-    { {{outer_kernels['T']|generate_call(stream='streams[0]', cell_interval="layers[0]")|indent(4)}} }
+    {%if target is equalto 'gpu'%}
+    auto s = parallelStreams_.parallelSection( stream );
+    {% endif %}
 
-    for(int i=0; i < layers.size(); ++i )
-        WALBERLA_CUDA_CHECK( cudaStreamSynchronize(streams[i]) );
+    {% for dir, ci in [('W', "layers[5]"),
+                       ('E', 'layers[4]'),
+                       ('S', 'layers[3]'),
+                       ('N', 'layers[2]'),
+                       ('B', 'layers[1]'),
+                       ('T', 'layers[0]') ] %}
+
+    {%if target is equalto 'gpu'%}
+    {
+        {{outer_kernels[dir]|generate_call(stream='s.stream()', cell_interval=ci)|indent(8)}}
+        s.next();
+    }
+    {% else %}
+    {
+        {{outer_kernels[dir]|generate_call(cell_interval=ci)|indent(8)}}
+    }
+    {% endif %}
+    {% endfor %}
 
     {{kernel|generate_swaps|indent(4)}}
 }

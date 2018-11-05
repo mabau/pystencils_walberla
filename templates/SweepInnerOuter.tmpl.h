@@ -23,6 +23,7 @@
 #include "field/GhostLayerField.h"
 {%- elif target is equalto 'gpu' -%}
 #include "cuda/GPUField.h"
+#include "cuda/ParallelStreams.h"
 {%- endif %}
 #include "field/SwapableCompare.h"
 #include "domain_decomposition/BlockDataID.h"
@@ -50,19 +51,25 @@ namespace {{namespace}} {
 class {{class_name}}
 {
 public:
-    {{class_name}}( {{kernel|generate_constructor_parameters}}{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %})
-        : {{ kernel|generate_constructor_initializer_list }}, stream_(stream)
+    {{class_name}}( {{kernel|generate_constructor_parameters}})
+        : {{ kernel|generate_constructor_initializer_list }}
     {};
 
-    void operator() ( IBlock * block );
+    void operator() ( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );
 
-    void inner( IBlock * block );
-    void outer( IBlock * block );
+    void inner( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );
+    void outer( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );
 
+    void setOuterPriority(int priority ) {
+        {%if target is equalto 'gpu'%}
+        parallelStreams_.setStreamPriority(priority);
+        {%endif%}
+    }
 private:
     {{kernel|generate_members|indent(4)}}
+
     {%if target is equalto 'gpu'%}
-    cudaStream_t stream_;
+    cuda::ParallelStreams parallelStreams_;
     {% endif %}
 };
 
