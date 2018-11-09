@@ -1,5 +1,4 @@
 import sympy as sp
-from collections import namedtuple
 import functools
 from jinja2 import Environment, PackageLoader
 
@@ -7,7 +6,14 @@ from pystencils import kernel as kernel_decorator, create_staggered_kernel
 from pystencils import Field, SymbolCreator, create_kernel
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
 
-KernelInfo = namedtuple("KernelInfo", ['ast', 'temporary_fields', 'field_swaps', 'varying_parameters'])
+
+class KernelInfo:
+    def __init__(self, ast, temporary_fields=(), field_swaps=(), varying_parameters=()):
+        self.ast = ast
+        self.temporary_fields = tuple(temporary_fields)
+        self.field_swaps = tuple(field_swaps)
+        self.varying_parameters = tuple(varying_parameters)
+        self.parameters = ast.get_parameters()  # cache parameters here
 
 
 class Sweep:
@@ -81,24 +87,18 @@ class Sweep:
             ast = create_kernel(eqs, target=target, **optimization)
             ast.function_name = name
 
-            outer_kernels = {}
-            for dir_str in ('T', 'B', 'N', 'S', 'E', 'W'):
-                outer_kernel = create_kernel(eqs, target=target, **outer_optimization)
-                outer_kernel.function_name = name + "_" + dir_str
-                outer_kernels[dir_str] = KernelInfo(outer_kernel, temporary_fields, field_swaps, varying_parameters)
-
             env = Environment(loader=PackageLoader('pystencils_walberla'))
             add_pystencils_filters_to_jinja_env(env)
 
-            representative_field = {p.field_name for p in ast.parameters if p.is_field_argument}.pop()
+            main_kernel_info = KernelInfo(ast, temporary_fields, field_swaps, varying_parameters)
+            representative_field = {p.field_name for p in main_kernel_info.parameters if p.is_field_parameter}.pop()
 
             context = {
-                'kernel': KernelInfo(ast, temporary_fields, field_swaps, varying_parameters),
+                'kernel': main_kernel_info,
                 'namespace': namespace,
                 'class_name': ast.function_name[0].upper() + ast.function_name[1:],
                 'target': target,
                 'field': representative_field,
-                'outer_kernels': outer_kernels,
             }
 
             header = env.get_template("SweepInnerOuter.tmpl.h").render(**context)
@@ -120,7 +120,6 @@ class Sweep:
 
         file_names = [name + ".h", name + ('.cpp' if target == 'cpu' else '.cu')]
         codegen.register(file_names, callback)
-
 
     @staticmethod
     def _generate_header_and_source(function_returning_assignments, name, target, namespace,

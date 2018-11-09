@@ -45,11 +45,6 @@ namespace {{namespace}} {
 
 {{kernel|generate_definition}}
 
-{% for outer_kernel in outer_kernels.values() %}
-{{outer_kernel|generate_definition}}
-{% endfor %}
-
-
 void {{class_name}}::operator() ( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream{% endif %} )
 {
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
@@ -101,27 +96,21 @@ void {{class_name}}::outer( IBlock * block{%if target is equalto 'gpu'%} , cudaS
     }
 
     {%if target is equalto 'gpu'%}
-    auto s = parallelStreams_.parallelSection( stream );
-    {% endif %}
-
-    {% for dir, ci in [('W', "layers[5]"),
-                       ('E', 'layers[4]'),
-                       ('S', 'layers[3]'),
-                       ('N', 'layers[2]'),
-                       ('B', 'layers[1]'),
-                       ('T', 'layers[0]') ] %}
-
-    {%if target is equalto 'gpu'%}
     {
-        {{outer_kernels[dir]|generate_call(stream='s.stream()', cell_interval=ci)|indent(8)}}
-        s.next();
+        auto parallelSection_ = parallelStreams_.parallelSection( stream );
+        for( auto & ci: layers )
+        {
+            parallelSection_.run([&]( auto s ) {
+                {{kernel|generate_call(stream='s', cell_interval='ci')|indent(16)}}
+            });
+        }
     }
     {% else %}
+    for( auto & ci: layers )
     {
-        {{outer_kernels[dir]|generate_call(cell_interval=ci)|indent(8)}}
+        {{kernel|generate_call(cell_interval='ci')|indent(8)}}
     }
     {% endif %}
-    {% endfor %}
 
     {{kernel|generate_swaps|indent(4)}}
 }

@@ -83,8 +83,8 @@ def generate_pack_info(class_name: str,
                                    **create_kernel_params)
         unpack_ast.function_name = 'unpack_{}'.format("_".join(inv_direction_string))
 
-        pack_kernels[direction_strings] = KernelInfo(pack_ast, [], [], [])
-        unpack_kernels[inv_direction_string] = KernelInfo(unpack_ast, [], [], [])
+        pack_kernels[direction_strings] = KernelInfo(pack_ast)
+        unpack_kernels[inv_direction_string] = KernelInfo(unpack_ast)
         elements_per_cell[direction_strings] = len(terms)
 
     fused_kernel = create_kernel([Assignment(buffer.center, t) for t in all_accesses], **create_kernel_params)
@@ -93,7 +93,7 @@ def generate_pack_info(class_name: str,
         'class_name': class_name,
         'pack_kernels': pack_kernels,
         'unpack_kernels': unpack_kernels,
-        'fused_kernel': KernelInfo(fused_kernel, [], [], []),
+        'fused_kernel': KernelInfo(fused_kernel),
         'elements_per_cell': elements_per_cell,
         'target': target,
         'dtype': dtype,
