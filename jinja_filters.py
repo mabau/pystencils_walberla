@@ -257,7 +257,6 @@ def generate_constructor_initializer_list(kernel_info, parameters_to_ignore=None
     if parameters_to_ignore is None:
         parameters_to_ignore = []
 
-    ast = kernel_info.ast
     parameters_to_ignore += kernel_info.temporary_fields
 
     parameter_initializer_list = []
