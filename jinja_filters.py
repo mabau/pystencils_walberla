@@ -24,6 +24,15 @@ else
 }}
 """
 
+temporary_constructor = """
+~{class_name}() {{  {contents} }}
+"""
+
+delete_loop = """
+    for(auto p: cache_{original_field_name}_) {{
+        delete p;
+    }}
+"""
 
 def make_field_type(dtype, f_size, is_gpu):
     if is_gpu:
@@ -318,6 +327,16 @@ def generate_members(ctx, kernel_info, parameters_to_ignore=(), only_fields=Fals
     return "\n".join(result)
 
 
+def generate_destructor(kernel_info, class_name):
+    if not kernel_info.temporary_fields:
+        return ""
+    else:
+        contents = ""
+        for field_name in kernel_info.temporary_fields:
+            contents += delete_loop.format(original_field_name=field_name[:-len('_tmp')])
+        return temporary_constructor.format(contents=contents, class_name=class_name)
+
+
 def add_pystencils_filters_to_jinja_env(jinja_env):
     jinja_env.filters['generate_definition'] = generate_definition
     jinja_env.filters['generate_declaration'] = generate_declaration
@@ -328,3 +347,4 @@ def add_pystencils_filters_to_jinja_env(jinja_env):
     jinja_env.filters['generate_block_data_to_field_extraction'] = generate_block_data_to_field_extraction
     jinja_env.filters['generate_swaps'] = generate_swaps
     jinja_env.filters['generate_refs_for_kernel_parameters'] = generate_refs_for_kernel_parameters
+    jinja_env.filters['generate_destructor'] = generate_destructor

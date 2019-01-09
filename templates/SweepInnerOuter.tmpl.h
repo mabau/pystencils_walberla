@@ -55,6 +55,9 @@ public:
         : {{ kernel|generate_constructor_initializer_list }}
     {};
 
+    {{ kernel| generate_destructor(class_name) |indent(4) }}
+
+
     void operator() ( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );
 
     void inner( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );

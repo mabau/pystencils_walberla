@@ -54,6 +54,8 @@ public:
         : {{ kernel|generate_constructor_initializer_list }}, stream_(stream)
     {};
 
+    {{ kernel| generate_destructor(class_name) |indent(4) }}
+
     void operator() ( IBlock * block );
 private:
     {{kernel|generate_members|indent(4)}}
