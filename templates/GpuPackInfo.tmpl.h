@@ -23,7 +23,7 @@ public:
     {{class_name}}( {{fused_kernel|generate_constructor_parameters(parameters_to_ignore=['buffer'])}} )
         : {{ fused_kernel|generate_constructor_initializer_list(parameters_to_ignore=['buffer']) }}
     {};
-
+    virtual ~{{class_name}}() {}
 
     virtual void pack  (stencil::Direction dir, unsigned char * buffer, IBlock * block, cudaStream_t stream);
     virtual void unpack(stencil::Direction dir, unsigned char * buffer, IBlock * block, cudaStream_t stream);

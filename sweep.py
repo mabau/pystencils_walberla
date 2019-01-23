@@ -91,7 +91,8 @@ class Sweep:
             add_pystencils_filters_to_jinja_env(env)
 
             main_kernel_info = KernelInfo(ast, temporary_fields, field_swaps, varying_parameters)
-            representative_field = {p.field_name for p in main_kernel_info.parameters if p.is_field_parameter}.pop()
+            representative_field = {p.field_name for p in main_kernel_info.parameters if p.is_field_parameter}
+            representative_field = sorted(representative_field)[0]
 
             context = {
                 'kernel': main_kernel_info,

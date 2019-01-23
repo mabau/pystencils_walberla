@@ -1,5 +1,5 @@
 from itertools import product
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from typing import Dict, Sequence, Tuple, Optional
 from jinja2 import Environment, PackageLoader
 from pystencils import Field, FieldType, Assignment, create_kernel
@@ -45,6 +45,10 @@ def generate_pack_info(class_name: str,
                        directions_to_pack_terms: Dict[Tuple[Tuple], Sequence[Field.Access]],
                        namespace='pystencils',
                        **create_kernel_params):
+
+    items = [(e[0], sorted(e[1], key=lambda x: str(x))) for e in directions_to_pack_terms.items()]
+    items = sorted(items, key=lambda e: e[0])
+    directions_to_pack_terms = OrderedDict(items)
     target = create_kernel_params.get('target', 'cpu')
 
     fields_accessed = set()
@@ -60,10 +64,10 @@ def generate_pack_info(class_name: str,
         raise NotImplementedError("Fields of different data types are used - this is not supported")
     dtype = data_types.pop()
 
-    pack_kernels = {}
-    unpack_kernels = {}
+    pack_kernels = OrderedDict()
+    unpack_kernels = OrderedDict()
     all_accesses = set()
-    elements_per_cell = {}
+    elements_per_cell = OrderedDict()
     for direction_set, terms in directions_to_pack_terms.items():
         for d in direction_set:
             if not all(abs(i) <= 1 for i in d):

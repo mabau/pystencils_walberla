@@ -193,10 +193,11 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
         if cell_interval is None:
             shape_names = ['xSize()', 'ySize()', 'zSize()'][:field_object.spatial_dimensions]
             offset = 2 * ghost_layers_to_include + 2 * required_ghost_layers
-            return ["%s->%s + %s" % (field_object.name, e, offset) for e in shape_names]
+            return ["cell_idx_c(%s->%s) + %s" % (field_object.name, e, offset) for e in shape_names]
         else:
             assert ghost_layers_to_include == 0
-            return ["{ci}.{coord}Size() + {gl}".format(coord=coord_name, ci=cell_interval, gl=2 * required_ghost_layers)
+            return ["cell_idx_c({ci}.{coord}Size()) + {gl}".format(coord=coord_name, ci=cell_interval,
+                                                                   gl=2 * required_ghost_layers)
                     for coord_name in ('x', 'y', 'z')]
 
     for param in ast_params:
@@ -208,9 +209,11 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             if field.field_type == FieldType.BUFFER:
                 kernel_call_lines.append("%s %s = %s;" % (param.symbol.dtype, param.symbol.name, param.field_name))
             else:
-                coordinates = get_start_coordinates(field)
+                coordinates = set(get_start_coordinates(field))
+                coordinates = sorted(coordinates, key=lambda e: str(e))
                 actual_gls = "int_c(%s->nrOfGhostLayers())" % (param.field_name, )
-                for c in set(coordinates):
+
+                for c in coordinates:
                     kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, -%s);" %
                                              (c, actual_gls))
                 while len(coordinates) < 4:
