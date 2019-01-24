@@ -9,71 +9,70 @@ Usage example:
     codegen.register(['MyClass.h', 'MyClass.cpp'], functionReturningTwoStringsForHeaderAndCpp)
 
 """
-import atexit
-from argparse import ArgumentParser
+import json
+import sys
+import os
+import warnings
 
+__all__ = ['CodeGeneration']
 
-class CodeGeneratorCMakeIntegration:
-
+class CodeGeneration:
     def __init__(self):
-        self._registeredGenerators = []
+        expected_files, cmake_vars = parse_json_args()
+        self.context = CodeGenerationContext(cmake_vars)
+        self.expected_files = expected_files
 
-    def register(self, files, generation_function):
-        """
-        Register function that generates on or more source files
-        :param files: paths of files to generate
-        :param generation_function: function that returns a tuple of string with the file contents
-                                   returned tuple has to have as many entries as files
-        """
-        self._registeredGenerators.append((files, generation_function))
+    def __enter__(self):
+        return self.context
 
-    @property
-    def generated_files(self):
-        return sum((e[0] for e in self._registeredGenerators), [])
-
-    def get_generators(self):
-        """Returns a dict mapping filename to function that generates code for this file"""
-        return {tuple(a): b for a, b in self._registeredGenerators}
-
-    def generate(self):
-        for paths, generator_function in self._registeredGenerators:
-            files = generator_function()
-            assert len(files) == len(paths), "Registered generator function does not return expected amount of files"
-            for path, file in zip(paths, files):
-                with open(path, 'w') as f:
-                    f.write(file)
+    def __exit__(self, *args):
+        if self.expected_files and (set(self.context.files_written) != set(self.expected_files)):
+            only_in_cmake = set(self.expected_files) - set(self.context.files_written)
+            only_generated = set(self.context.files_written) - set(self.expected_files)
+            error_message = "Generated files specified not correctly in cmake with 'waLBerla_python_file_generates'\n"
+            if only_in_cmake:
+                error_message += "Files only specified in CMake {}\n".format([os.path.basename(p) for p in only_in_cmake])
+            if only_generated:
+                error_message += "Unexpected generated files {}\n".format([os.path.basename(p) for p in only_generated])
+            raise ValueError(error_message)
 
 
-codegen = CodeGeneratorCMakeIntegration()
+def parse_json_args():
+    default = {'EXPECTED_FILES': [],
+                  'CMAKE_VARS': {'WALBERLA_BUILD_WITH_OPENMP': False,
+                                 'WALBERLA_OPTIMIZE_FOR_LOCALHOST': False,
+                                 'WALBERLA_DOUBLE_ACCURACY': True,
+                                 'WALBERLA_BUILD_WITH_MPI': True}
+                  }
 
-
-def main():
-    from pystencils.gpucuda.indexing import AUTO_BLOCK_SIZE_LIMITING
-
-    # prevent automatic block size detection of CUDA generation module
-    # this would import pycuda, which might not be available, and if it is available problems occur
-    # since we use atexit and pycuda does as well, leading to a tear-down problem
-    previous_block_size_limiting_state = AUTO_BLOCK_SIZE_LIMITING
-    AUTO_BLOCKSIZE_LIMITING = False
-
-    parser = ArgumentParser()
-    parser.add_argument("-l", "--list-output-files", action='store_true', default=False,
-                        help="Prints a list of files this script generates instead of generating them")
-    parser.add_argument("-g", "--generate", action='store_true', default=False,
-                        help="Generates the files")
-
-    args = parser.parse_args()
-    if args.list_output_files:
-        print(";".join(codegen.generated_files))
-    elif args.generate:
-        codegen.generate()
+    if len(sys.argv) == 2:
+        try:
+            parsed = json.loads(sys.argv[1])
+        except json.JSONDecodeError:
+            warnings.warn("Could not parse JSON arguments")
+            parsed = default
     else:
-        parser.print_help()
-    AUTO_BLOCKSIZE_LIMITING = previous_block_size_limiting_state
+        parsed = default
+    expected_files = parsed['EXPECTED_FILES']
+    cmake_vars = {}
+    for key, value in parsed['CMAKE_VARS'].items():
+        if value in ("ON", "1", "YES"):
+            value = True
+        elif value in ("OFF", "0", "NO"):
+            value = False
+        cmake_vars[key] = value
+    return expected_files, cmake_vars
 
 
-def do_not_run_generation_at_exit():
-    atexit.unregister(main)
+class CodeGenerationContext:
+    def __init__(self, cmake_vars):
+        self.files_written = []
+        self.openmp = cmake_vars['WALBERLA_BUILD_WITH_OPENMP']
+        self.optimize_for_localhost = cmake_vars['WALBERLA_OPTIMIZE_FOR_LOCALHOST']
+        self.mpi = cmake_vars['WALBERLA_BUILD_WITH_MPI']
+        self.double_accuracy = cmake_vars['WALBERLA_DOUBLE_ACCURACY']
 
-
-atexit.register(main)
+    def write_file(self, name, content):
+        self.files_written.append(os.path.abspath(name))
+        with open(name, 'w') as f:
+            f.write(content)

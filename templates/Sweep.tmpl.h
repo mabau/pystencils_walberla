@@ -51,7 +51,7 @@ class {{class_name}}
 {
 public:
     {{class_name}}( {{kernel|generate_constructor_parameters}}{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %})
-        : {{ kernel|generate_constructor_initializer_list }}, stream_(stream)
+        : {{ kernel|generate_constructor_initializer_list }}{%if target is equalto 'gpu'%}, stream_(stream) {%endif %}
     {};
 
     {{ kernel| generate_destructor(class_name) |indent(4) }}

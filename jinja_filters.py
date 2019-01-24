@@ -209,11 +209,11 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             if field.field_type == FieldType.BUFFER:
                 kernel_call_lines.append("%s %s = %s;" % (param.symbol.dtype, param.symbol.name, param.field_name))
             else:
-                coordinates = set(get_start_coordinates(field))
-                coordinates = sorted(coordinates, key=lambda e: str(e))
+                coordinates = get_start_coordinates(field)
                 actual_gls = "int_c(%s->nrOfGhostLayers())" % (param.field_name, )
-
-                for c in coordinates:
+                coord_set = set(coordinates)
+                coord_set = sorted(coord_set, key=lambda e: str(e))
+                for c in coord_set:
                     kernel_call_lines.append("WALBERLA_ASSERT_GREATER_EQUAL(%s, -%s);" %
                                              (c, actual_gls))
                 while len(coordinates) < 4:
