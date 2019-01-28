@@ -34,6 +34,7 @@ delete_loop = """
     }}
 """
 
+
 def make_field_type(dtype, f_size, is_gpu):
     if is_gpu:
         return "cuda::GPUField<%s>" % (dtype,)
@@ -70,18 +71,18 @@ def get_field_stride(param):
     return strides[param.symbol.coordinate]
 
 
-def generate_declaration(kernel_info):
+def generate_declaration(kernel_info, target='cpu'):
     """Generates the declaration of the kernel function"""
     ast = kernel_info.ast
-    result = generate_c(ast, signature_only=True) + ";"
+    result = generate_c(ast, signature_only=True, dialect='cuda' if target == 'gpu' else 'c') + ";"
     result = "namespace internal_%s {\n%s\n}" % (ast.function_name, result,)
     return result
 
 
-def generate_definition(kernel_info):
+def generate_definition(kernel_info, target='cpu'):
     """Generates the definition (i.e. implementation) of the kernel function"""
     ast = kernel_info.ast
-    result = generate_c(ast)
+    result = generate_c(ast, dialect='cuda' if target == 'gpu' else 'c')
     result = "namespace internal_%s {\nstatic %s\n}" % (ast.function_name, result)
     return result
 

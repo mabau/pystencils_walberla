@@ -48,7 +48,7 @@ namespace walberla {
 namespace {{namespace}} {
 
 
-{{kernel|generate_definition}}
+{{kernel|generate_definition(target)}}
 
 
 void {{class_name}}::operator()( IBlock * block )

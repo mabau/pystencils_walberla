@@ -20,11 +20,11 @@ using walberla::stencil::Direction;
 
 
 {% for kernel in pack_kernels.values() %}
-{{kernel|generate_definition}}
+{{kernel|generate_definition(target)}}
 {% endfor %}
 
 {% for kernel in unpack_kernels.values() %}
-{{kernel|generate_definition}}
+{{kernel|generate_definition(target)}}
 {% endfor %}
 
 

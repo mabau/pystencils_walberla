@@ -43,7 +43,7 @@ using namespace std;
 namespace walberla {
 namespace {{namespace}} {
 
-{{kernel|generate_definition}}
+{{kernel|generate_definition(target)}}
 
 void {{class_name}}::operator() ( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream{% endif %} )
 {
