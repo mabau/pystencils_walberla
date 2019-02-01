@@ -14,7 +14,8 @@ import sys
 import os
 import warnings
 
-__all__ = ['CodeGeneration']
+__all__ = ['CodeGeneration', 'ManualCodeGenerationContext']
+
 
 class CodeGeneration:
     def __init__(self):
@@ -76,3 +77,25 @@ class CodeGenerationContext:
         self.files_written.append(os.path.abspath(name))
         with open(name, 'w') as f:
             f.write(content)
+
+
+class ManualCodeGenerationContext:
+    """Context for testing - does not actually write files but puts them into a public dict
+    Environment parameters like if OpenMP, MPI or CPU-specific optimization should be used can be explicitly passed
+    to constructor instead of getting them from CMake
+    """
+    def __init__(self, openmp=False, optimize_for_localhost=False, mpi=True, double_accuracy=True):
+        self.openmp = openmp
+        self.optimize_for_localhost = optimize_for_localhost
+        self.mpi = mpi
+        self.double_accuracy = double_accuracy
+        self.files = dict()
+
+    def write_file(self, name, content):
+        self.files[name] = content
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass

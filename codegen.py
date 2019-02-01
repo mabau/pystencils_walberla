@@ -20,7 +20,7 @@ def generate_sweep(generation_context, class_name, assignments,
     if hasattr(assignments, 'all_assignments'):
         assignments = assignments.all_assignments
 
-        create_kernel_params = default_create_kernel_parameters(generation_context, create_kernel_params)
+    create_kernel_params = default_create_kernel_parameters(generation_context, create_kernel_params)
 
     if not staggered:
         ast = create_kernel(assignments, **create_kernel_params)
