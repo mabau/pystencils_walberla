@@ -23,6 +23,9 @@
 #include "core/DataTypes.h"
 #include "core/Macros.h"
 #include "{{class_name}}.h"
+{% for header in headers %}
+#include {{header}}
+{% endfor %}
 
 
 {% if target is equalto 'cpu' -%}
@@ -36,6 +39,7 @@
 #   pragma GCC diagnostic ignored "-Wfloat-equal"
 #   pragma GCC diagnostic ignored "-Wshadow"
 #   pragma GCC diagnostic ignored "-Wconversion"
+#   pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
 
 using namespace std;
@@ -43,14 +47,36 @@ using namespace std;
 namespace walberla {
 namespace {{namespace}} {
 
+
 {{kernel|generate_definition}}
 
-void {{class_name}}::operator() ( IBlock * block )
+
+void {{class_name}}::sweep( IBlock * block )
 {
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
     {{kernel|generate_call(stream='stream_')|indent(4)}}
     {{kernel|generate_swaps|indent(4)}}
 }
+
+
+void {{class_name}}::sweepOnCellInterval( const shared_ptr<StructuredBlockStorage> & blocks,
+                                          const CellInterval & globalCellInterval,
+                                          cell_idx_t ghostLayers,
+                                          IBlock * block )
+{
+    CellInterval ci = globalCellInterval;
+    CellInterval blockBB = blocks->getBlockCellBB( *block);
+    blockBB.expand( ghostLayers );
+    ci.intersect( blockBB );
+    blocks->transformGlobalToBlockLocalCellInterval( ci, *block );
+    if( ci.empty() )
+        return;
+
+    {{kernel|generate_block_data_to_field_extraction|indent(4)}}
+    {{kernel|generate_call(stream='stream_', cell_interval='ci')|indent(4)}}
+    {{kernel|generate_swaps|indent(4)}}
+}
+
 
 } // namespace {{namespace}}
 } // namespace walberla

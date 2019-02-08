@@ -4,6 +4,7 @@ from itertools import product
 from typing import Dict, Sequence, Tuple, Optional
 
 from pystencils import create_staggered_kernel, Field, create_kernel, Assignment, FieldType
+from pystencils.backends.cbackend import get_headers
 from pystencils.backends.simd_instruction_sets import get_supported_instruction_sets
 from pystencils.stencils import offset_to_direction_string, inverse_direction
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
@@ -44,6 +45,7 @@ def generate_sweep(generation_context, class_name, assignments,
             'namespace': namespace,
             'class_name': class_name,
             'target': create_kernel_params.get("target", "cpu"),
+            'headers': get_headers(ast),
         }
         header = env.get_template("Sweep.tmpl.h").render(**jinja_context)
         source = env.get_template("Sweep.tmpl.cpp").render(**jinja_context)
@@ -58,6 +60,7 @@ def generate_sweep(generation_context, class_name, assignments,
             'class_name': class_name,
             'target': create_kernel_params.get("target", "cpu"),
             'field': representative_field,
+            'headers': get_headers(ast),
         }
         header = env.get_template("SweepInnerOuter.tmpl.h").render(**jinja_context)
         source = env.get_template("SweepInnerOuter.tmpl.cpp").render(**jinja_context)
@@ -193,6 +196,7 @@ def default_create_kernel_parameters(generation_context, params):
 
     vec = params['cpu_vectorize_info']
     vec['instruction_set'] = vec.get('instruction_set', default_vec_is)
+    vec['assume_inner_stride_one'] = True
     vec['assume_aligned'] = vec.get('assume_aligned', False)
     vec['nontemporal'] = vec.get('nontemporal', False)
     return params

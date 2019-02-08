@@ -8,7 +8,7 @@ from pystencils.kernelparameters import SHAPE_DTYPE
 from pystencils.sympyextensions import prod
 
 temporary_fieldMemberTemplate = """
-std::set< {type} *, field::SwapableCompare< {type} * > > cache_{original_field_name}_;"""
+private: std::set< {type} *, field::SwapableCompare< {type} * > > cache_{original_field_name}_;"""
 
 temporary_fieldTemplate = """
 // Getting temporary field {tmp_field_name}
@@ -52,6 +52,23 @@ def get_field_fsize(field):
         return 1
     else:
         return prod(field.index_shape)
+
+
+def get_field_stride(param):
+    field = param.fields[0]
+    type_str = get_base_type(param.symbol.dtype).base_name
+    stride_names = ['xStride()', 'yStride()', 'zStride()', 'fStride()']
+    stride_names = ["%s(%s->%s)" % (type_str, param.field_name, e) for e in stride_names]
+    strides = stride_names[:field.spatial_dimensions]
+    if field.index_dimensions > 0:
+        additional_strides = [1]
+        for shape in reversed(field.index_shape[1:]):
+            additional_strides.append(additional_strides[-1] * shape)
+        assert len(additional_strides) == field.index_dimensions
+        f_stride_name = stride_names[-1]
+        strides.extend(["%s(%d * %s)" % (type_str, e, f_stride_name) for e in reversed(additional_strides)])
+    return strides[param.symbol.coordinate]
+
 
 def generate_declaration(kernel_info):
     """Generates the declaration of the kernel function"""
@@ -222,9 +239,8 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
                 kernel_call_lines.append("%s %s = %s->dataAt(%s, %s, %s, %s);" %
                                          ((param.symbol.dtype, param.symbol.name, param.field_name) + coordinates))
         elif param.is_field_stride:
+            casted_stride = get_field_stride(param)
             type_str = param.symbol.dtype.base_name
-            stride_names = ('xStride()', 'yStride()', 'zStride()', 'fStride()')
-            casted_stride = "%s(%s->%s)" % (type_str, param.field_name, stride_names[param.symbol.coordinate])
             kernel_call_lines.append("const %s %s = %s;" % (type_str, param.symbol.name, casted_stride))
         elif param.is_field_shape:
             coord = param.symbol.coordinate
@@ -326,6 +342,9 @@ def generate_members(ctx, kernel_info, parameters_to_ignore=(), only_fields=Fals
         f_size = get_field_fsize(f)
         field_type = make_field_type(get_base_type(f.dtype), f_size, is_gpu)
         result.append(temporary_fieldMemberTemplate.format(type=field_type, original_field_name=original_field_name))
+
+    if hasattr(kernel_info, 'varying_parameters'):
+        result.extend(["%s %s;" % e for e in kernel_info.varying_parameters])
 
     return "\n".join(result)
 
