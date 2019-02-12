@@ -57,28 +57,29 @@ public:
 
     {{ kernel| generate_destructor(class_name) |indent(4) }}
 
-    void operator()(IBlock * b) { sweep(b); }
+    void operator()(IBlock * b);
+    void runOnCellInterval(const shared_ptr<StructuredBlockStorage> & blocks,
+                           const CellInterval & globalCellInterval, cell_idx_t ghostLayers, IBlock * block);
 
-    std::function<void (IBlock*)> getSweep() {
-        return [this](IBlock * b) { this->sweep(b); };
+
+
+    static std::function<void (IBlock*)> getSweep(const shared_ptr<{{class_name}}> & kernel) {
+        return [kernel](IBlock * b) { (*kernel)(b); };
     }
 
-    std::function<void (IBlock*)> getSweepOnCellInterval(const shared_ptr<StructuredBlockStorage> & blocks,
-                                                         const CellInterval & globalCellInterval,
-                                                         cell_idx_t ghostLayers=1 )
+    static std::function<void (IBlock*)> getSweepOnCellInterval(const shared_ptr<{{class_name}}> & kernel,
+                                                                const shared_ptr<StructuredBlockStorage> & blocks,
+                                                                const CellInterval & globalCellInterval,
+                                                                cell_idx_t ghostLayers=1 )
     {
-        return [this, blocks, globalCellInterval, ghostLayers] (IBlock * b) {
-            this->sweepOnCellInterval(blocks, globalCellInterval, ghostLayers, b);
+        return [kernel, blocks, globalCellInterval, ghostLayers] (IBlock * b) {
+            kernel->runOnCellInterval(blocks, globalCellInterval, ghostLayers, b);
         };
     }
 
     {{ kernel|generate_members|indent(4) }}
 
 private:
-    void sweep( IBlock * block );
-    void sweepOnCellInterval(const shared_ptr<StructuredBlockStorage> & blocks,
-                             const CellInterval & globalCellInterval, cell_idx_t ghostLayers, IBlock * block );
-
     {%if target is equalto 'gpu'%}
     cudaStream_t stream_;
     {% endif %}

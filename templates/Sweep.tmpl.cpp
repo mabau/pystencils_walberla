@@ -51,7 +51,7 @@ namespace {{namespace}} {
 {{kernel|generate_definition}}
 
 
-void {{class_name}}::sweep( IBlock * block )
+void {{class_name}}::operator()( IBlock * block )
 {
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
     {{kernel|generate_call(stream='stream_')|indent(4)}}
@@ -59,10 +59,10 @@ void {{class_name}}::sweep( IBlock * block )
 }
 
 
-void {{class_name}}::sweepOnCellInterval( const shared_ptr<StructuredBlockStorage> & blocks,
-                                          const CellInterval & globalCellInterval,
-                                          cell_idx_t ghostLayers,
-                                          IBlock * block )
+void {{class_name}}::runOnCellInterval( const shared_ptr<StructuredBlockStorage> & blocks,
+                                        const CellInterval & globalCellInterval,
+                                        cell_idx_t ghostLayers,
+                                        IBlock * block )
 {
     CellInterval ci = globalCellInterval;
     CellInterval blockBB = blocks->getBlockCellBB( *block);
