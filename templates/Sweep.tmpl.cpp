@@ -50,11 +50,10 @@ namespace {{namespace}} {
 
 {{kernel|generate_definition(target)}}
 
-
-void {{class_name}}::operator()( IBlock * block )
+void {{class_name}}::operator()( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream{% endif %} )
 {
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
-    {{kernel|generate_call(stream='stream_')|indent(4)}}
+    {{kernel|generate_call(stream='stream')|indent(4)}}
     {{kernel|generate_swaps|indent(4)}}
 }
 
@@ -62,7 +61,7 @@ void {{class_name}}::operator()( IBlock * block )
 void {{class_name}}::runOnCellInterval( const shared_ptr<StructuredBlockStorage> & blocks,
                                         const CellInterval & globalCellInterval,
                                         cell_idx_t ghostLayers,
-                                        IBlock * block )
+                                        IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream{% endif %} )
 {
     CellInterval ci = globalCellInterval;
     CellInterval blockBB = blocks->getBlockCellBB( *block);
@@ -73,7 +72,7 @@ void {{class_name}}::runOnCellInterval( const shared_ptr<StructuredBlockStorage>
         return;
 
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
-    {{kernel|generate_call(stream='stream_', cell_interval='ci')|indent(4)}}
+    {{kernel|generate_call(stream='stream', cell_interval='ci')|indent(4)}}
     {{kernel|generate_swaps|indent(4)}}
 }
 

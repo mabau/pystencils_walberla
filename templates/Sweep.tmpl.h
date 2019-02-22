@@ -51,15 +51,16 @@ namespace {{namespace}} {
 class {{class_name}}
 {
 public:
-    {{class_name}}( {{kernel|generate_constructor_parameters}}{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %})
-        : {{ kernel|generate_constructor_initializer_list }}{%if target is equalto 'gpu'%}, stream_(stream) {%endif %}
+    {{class_name}}( {{kernel|generate_constructor_parameters}})
+        : {{ kernel|generate_constructor_initializer_list }}
     {};
 
     {{ kernel| generate_destructor(class_name) |indent(4) }}
 
-    void operator()(IBlock * b);
+    void operator() ( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );
     void runOnCellInterval(const shared_ptr<StructuredBlockStorage> & blocks,
-                           const CellInterval & globalCellInterval, cell_idx_t ghostLayers, IBlock * block);
+                           const CellInterval & globalCellInterval, cell_idx_t ghostLayers, IBlock * block
+                           {%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %});
 
 
 
@@ -67,22 +68,19 @@ public:
         return [kernel](IBlock * b) { (*kernel)(b); };
     }
 
-    static std::function<void (IBlock*)> getSweepOnCellInterval(const shared_ptr<{{class_name}}> & kernel,
-                                                                const shared_ptr<StructuredBlockStorage> & blocks,
-                                                                const CellInterval & globalCellInterval,
-                                                                cell_idx_t ghostLayers=1 )
+    static std::function<void (IBlock*{%if target is equalto 'gpu'%} , cudaStream_t {% endif %})>
+            getSweepOnCellInterval(const shared_ptr<{{class_name}}> & kernel,
+                                   const shared_ptr<StructuredBlockStorage> & blocks,
+                                   const CellInterval & globalCellInterval,
+                                   cell_idx_t ghostLayers=1 )
     {
-        return [kernel, blocks, globalCellInterval, ghostLayers] (IBlock * b) {
-            kernel->runOnCellInterval(blocks, globalCellInterval, ghostLayers, b);
+        return [kernel, blocks, globalCellInterval, ghostLayers] (IBlock * b{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %}) {
+            kernel->runOnCellInterval(blocks, globalCellInterval, ghostLayers, b{%if target is equalto 'gpu'%},stream {% endif %});
         };
     }
 
     {{ kernel|generate_members|indent(4) }}
 
-private:
-    {%if target is equalto 'gpu'%}
-    cudaStream_t stream_;
-    {% endif %}
 };
 
 
