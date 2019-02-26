@@ -68,9 +68,9 @@ public:
         parallelStreams_.setStreamPriority(priority);
         {%endif%}
     }
-private:
     {{kernel|generate_members|indent(4)}}
 
+private:
     {%if target is equalto 'gpu'%}
     cuda::ParallelStreams parallelStreams_;
     {% endif %}
