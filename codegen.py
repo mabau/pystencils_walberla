@@ -23,6 +23,9 @@ def generate_sweep(generation_context, class_name, assignments,
 
     create_kernel_params = default_create_kernel_parameters(generation_context, create_kernel_params)
 
+    if not generation_context.cuda and create_kernel_params['target'] == 'gpu':
+        return
+
     if not staggered:
         ast = create_kernel(assignments, **create_kernel_params)
     else:
@@ -104,6 +107,9 @@ def generate_pack_info(generation_context, class_name: str,
 
     create_kernel_params = default_create_kernel_parameters(generation_context, create_kernel_params)
     target = create_kernel_params.get('target', 'cpu')
+
+    if not generation_context.cuda and target == 'gpu':
+        return
 
     fields_accessed = set()
     for terms in directions_to_pack_terms.values():

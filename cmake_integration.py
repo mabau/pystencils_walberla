@@ -40,11 +40,12 @@ class CodeGeneration:
 
 def parse_json_args():
     default = {'EXPECTED_FILES': [],
-                  'CMAKE_VARS': {'WALBERLA_BUILD_WITH_OPENMP': False,
-                                 'WALBERLA_OPTIMIZE_FOR_LOCALHOST': False,
-                                 'WALBERLA_DOUBLE_ACCURACY': True,
-                                 'WALBERLA_BUILD_WITH_MPI': True}
-                  }
+               'CMAKE_VARS': {'WALBERLA_BUILD_WITH_OPENMP': False,
+                              'WALBERLA_OPTIMIZE_FOR_LOCALHOST': False,
+                              'WALBERLA_DOUBLE_ACCURACY': True,
+                              'WALBERLA_BUILD_WITH_MPI': True,
+                              'WALBERLA_BUILD_WITH_CUDA': False}
+               }
 
     if len(sys.argv) == 2:
         try:
@@ -72,6 +73,7 @@ class CodeGenerationContext:
         self.optimize_for_localhost = cmake_vars['WALBERLA_OPTIMIZE_FOR_LOCALHOST']
         self.mpi = cmake_vars['WALBERLA_BUILD_WITH_MPI']
         self.double_accuracy = cmake_vars['WALBERLA_DOUBLE_ACCURACY']
+        self.cuda = cmake_vars['WALBERLA_BUILD_WITH_CUDA']
 
     def write_file(self, name, content):
         self.files_written.append(os.path.abspath(name))
@@ -90,6 +92,7 @@ class ManualCodeGenerationContext:
         self.mpi = mpi
         self.double_accuracy = double_accuracy
         self.files = dict()
+        self.cuda = False
 
     def write_file(self, name, content):
         self.files[name] = content
