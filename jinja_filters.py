@@ -262,7 +262,7 @@ def generate_call(ctx, kernel_info, ghost_layers_to_include=0, cell_interval=Non
             spatial_shape_symbols = [TypedSymbol(s, SHAPE_DTYPE) for s in spatial_shape_symbols]
 
         indexing_dict = ast.indexing.call_parameters(spatial_shape_symbols)
-        sp_printer_c = CustomSympyPrinter()
+        sp_printer_c = CustomSympyPrinter(dialect='cuda')
         kernel_call_lines += [
             "dim3 _block(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['block']),
             "dim3 _grid(int(%s), int(%s), int(%s));" % tuple(sp_printer_c.doprint(e) for e in indexing_dict['grid']),
