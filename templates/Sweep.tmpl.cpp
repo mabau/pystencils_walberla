@@ -42,6 +42,11 @@
 #   pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
 
+#if ( defined WALBERLA_CXX_COMPILER_IS_INTEL )
+#pragma warning push
+#pragma warning( disable :  1599 )
+#endif
+
 using namespace std;
 
 namespace walberla {
@@ -83,4 +88,8 @@ void {{class_name}}::runOnCellInterval( const shared_ptr<StructuredBlockStorage>
 
 #if ( defined WALBERLA_CXX_COMPILER_IS_GNU ) || ( defined WALBERLA_CXX_COMPILER_IS_CLANG )
 #   pragma GCC diagnostic pop
+#endif
+
+#if ( defined WALBERLA_CXX_COMPILER_IS_INTEL )
+#pragma warning pop
 #endif
