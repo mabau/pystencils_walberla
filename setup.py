@@ -1,6 +1,12 @@
-from setuptools import setup
+import os
+import sys
+from setuptools import setup, find_packages
+sys.path.insert(0, os.path.abspath('..'))
+from custom_pypi_index.pypi_index import get_current_dev_version_from_git
+
 
 setup(name='pystencils_walberla',
+      version=get_current_dev_version_from_git(),
       description='pystencils code generation for waLBerla apps',
       author='Martin Bauer',
       license='AGPLv3',
@@ -9,5 +15,4 @@ setup(name='pystencils_walberla',
       packages=['pystencils_walberla'],
       install_requires=['pystencils[alltrafos]', 'jinja2'],
       package_data={'pystencils_walberla': ['templates/*']},
-      version_format='{tag}.dev{commits}+{sha}',
       )
