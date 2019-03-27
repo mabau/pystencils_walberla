@@ -321,14 +321,15 @@ def generate_constructor_parameters(kernel_info, parameters_to_ignore=None):
 def generate_members(ctx, kernel_info, parameters_to_ignore=(), only_fields=False):
     ast = kernel_info.ast
     fields = {f.name: f for f in ast.fields_accessed}
+
     params_to_skip = tuple(parameters_to_ignore) + tuple(kernel_info.temporary_fields)
+    params_to_skip += tuple(e[1] for e in kernel_info.varying_parameters)
     is_gpu = ctx['target'] == 'gpu'
 
     result = []
     for param in kernel_info.parameters:
         if only_fields and not param.is_field_parameter:
             continue
-
         if param.is_field_pointer and param.field_name not in params_to_skip:
             result.append("BlockDataID %sID;" % (param.field_name, ))
         elif not param.is_field_parameter and param.symbol.name not in params_to_skip:
