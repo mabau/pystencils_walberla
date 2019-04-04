@@ -17,6 +17,7 @@
 //! \\author pystencils
 //======================================================================================================================
 
+#pragma once
 #include "core/DataTypes.h"
 
 {% if target is equalto 'cpu' -%}
@@ -28,7 +29,7 @@
 #include "field/SwapableCompare.h"
 #include "domain_decomposition/BlockDataID.h"
 #include "domain_decomposition/IBlock.h"
-
+#include "domain_decomposition/StructuredBlockStorage.h"
 #include <set>
 
 #ifdef __GNUC__
@@ -59,6 +60,28 @@ public:
 
 
     void operator() ( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );
+
+    void runOnCellInterval(const shared_ptr<StructuredBlockStorage> & blocks,
+                           const CellInterval & globalCellInterval, cell_idx_t ghostLayers, IBlock * block
+                           {%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %});
+
+
+
+    static std::function<void (IBlock*)> getSweep(const shared_ptr<{{class_name}}> & kernel) {
+        return [kernel](IBlock * b) { (*kernel)(b); };
+    }
+
+    static std::function<void (IBlock*{%if target is equalto 'gpu'%} , cudaStream_t {% endif %})>
+            getSweepOnCellInterval(const shared_ptr<{{class_name}}> & kernel,
+                                   const shared_ptr<StructuredBlockStorage> & blocks,
+                                   const CellInterval & globalCellInterval,
+                                   cell_idx_t ghostLayers=1 )
+    {
+        return [kernel, blocks, globalCellInterval, ghostLayers] (IBlock * b{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %}) {
+            kernel->runOnCellInterval(blocks, globalCellInterval, ghostLayers, b{%if target is equalto 'gpu'%},stream {% endif %});
+        };
+    }
+
 
     void inner( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );
     void outer( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream = 0{% endif %} );
