@@ -191,7 +191,11 @@ def default_create_kernel_parameters(generation_context, params):
     default_dtype = "float64" if generation_context.double_accuracy else 'float32'
 
     if generation_context.optimize_for_localhost:
-        default_vec_is = get_supported_instruction_sets()[-1]
+        supported_instruction_sets = get_supported_instruction_sets()
+        if supported_instruction_sets:
+            default_vec_is = get_supported_instruction_sets()[-1]
+        else:  # if cpuinfo package is not installed
+            default_vec_is = 'sse'
     else:
         default_vec_is = None
 
