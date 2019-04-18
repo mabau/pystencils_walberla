@@ -1,3 +1,4 @@
+#pragma once
 #include "stencil/Directions.h"
 #include "core/cell/CellInterval.h"
 #include "cuda/GPUField.h"

@@ -97,6 +97,8 @@ private:
     {%if target is equalto 'gpu'%}
     cuda::ParallelStreams parallelStreams_;
     {% endif %}
+
+    std::vector<CellInterval> layers_;
 };
 
 

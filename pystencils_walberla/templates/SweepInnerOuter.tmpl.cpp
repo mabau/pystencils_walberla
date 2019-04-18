@@ -85,38 +85,36 @@ void {{class_name}}::inner( IBlock * block{%if target is equalto 'gpu'%} , cudaS
 
 void {{class_name}}::outer( IBlock * block{%if target is equalto 'gpu'%} , cudaStream_t stream {% endif %} )
 {
-    static std::vector<CellInterval> layers;
-
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
 
-    if( layers.size() == 0 )
+    if( layers_.size() == 0 )
     {
         CellInterval ci;
 
         {{field}}->getSliceBeforeGhostLayer(stencil::T, ci, 1, false);
-        layers.push_back(ci);
+        layers_.push_back(ci);
         {{field}}->getSliceBeforeGhostLayer(stencil::B, ci, 1, false);
-        layers.push_back(ci);
+        layers_.push_back(ci);
 
         {{field}}->getSliceBeforeGhostLayer(stencil::N, ci, 1, false);
         ci.expand(Cell(0, 0, -1));
-        layers.push_back(ci);
+        layers_.push_back(ci);
         {{field}}->getSliceBeforeGhostLayer(stencil::S, ci, 1, false);
         ci.expand(Cell(0, 0, -1));
-        layers.push_back(ci);
+        layers_.push_back(ci);
 
         {{field}}->getSliceBeforeGhostLayer(stencil::E, ci, 1, false);
         ci.expand(Cell(0, -1, -1));
-        layers.push_back(ci);
+        layers_.push_back(ci);
         {{field}}->getSliceBeforeGhostLayer(stencil::W, ci, 1, false);
         ci.expand(Cell(0, -1, -1));
-        layers.push_back(ci);
+        layers_.push_back(ci);
     }
 
     {%if target is equalto 'gpu'%}
     {
         auto parallelSection_ = parallelStreams_.parallelSection( stream );
-        for( auto & ci: layers )
+        for( auto & ci: layers_ )
         {
             parallelSection_.run([&]( auto s ) {
                 {{kernel|generate_call(stream='s', cell_interval='ci')|indent(16)}}
@@ -124,7 +122,7 @@ void {{class_name}}::outer( IBlock * block{%if target is equalto 'gpu'%} , cudaS
         }
     }
     {% else %}
-    for( auto & ci: layers )
+    for( auto & ci: layers_ )
     {
         {{kernel|generate_call(cell_interval='ci')|indent(8)}}
     }
