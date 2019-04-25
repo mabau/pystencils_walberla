@@ -77,7 +77,7 @@ void {{class_name}}::inner( IBlock * block{%if target is equalto 'gpu'%} , cudaS
     {{kernel|generate_block_data_to_field_extraction|indent(4)}}
 
     CellInterval inner = {{field}}->xyzSize();
-    inner.expand(-1);
+    inner.expand(Cell(-outerWidth_[0], -outerWidth_[1], -outerWidth_[2]));
 
     {{kernel|generate_call(stream='stream', cell_interval='inner')|indent(4)}}
 }
@@ -91,23 +91,23 @@ void {{class_name}}::outer( IBlock * block{%if target is equalto 'gpu'%} , cudaS
     {
         CellInterval ci;
 
-        {{field}}->getSliceBeforeGhostLayer(stencil::T, ci, 1, false);
+        {{field}}->getSliceBeforeGhostLayer(stencil::T, ci, outerWidth_[2], false);
         layers_.push_back(ci);
-        {{field}}->getSliceBeforeGhostLayer(stencil::B, ci, 1, false);
-        layers_.push_back(ci);
-
-        {{field}}->getSliceBeforeGhostLayer(stencil::N, ci, 1, false);
-        ci.expand(Cell(0, 0, -1));
-        layers_.push_back(ci);
-        {{field}}->getSliceBeforeGhostLayer(stencil::S, ci, 1, false);
-        ci.expand(Cell(0, 0, -1));
+        {{field}}->getSliceBeforeGhostLayer(stencil::B, ci, outerWidth_[2], false);
         layers_.push_back(ci);
 
-        {{field}}->getSliceBeforeGhostLayer(stencil::E, ci, 1, false);
-        ci.expand(Cell(0, -1, -1));
+        {{field}}->getSliceBeforeGhostLayer(stencil::N, ci, outerWidth_[1], false);
+        ci.expand(Cell(0, 0, -outerWidth_[2]));
         layers_.push_back(ci);
-        {{field}}->getSliceBeforeGhostLayer(stencil::W, ci, 1, false);
-        ci.expand(Cell(0, -1, -1));
+        {{field}}->getSliceBeforeGhostLayer(stencil::S, ci, outerWidth_[1], false);
+        ci.expand(Cell(0, 0, -outerWidth_[2]));
+        layers_.push_back(ci);
+
+        {{field}}->getSliceBeforeGhostLayer(stencil::E, ci, outerWidth_[0], false);
+        ci.expand(Cell(0, -outerWidth_[1], -outerWidth_[2]));
+        layers_.push_back(ci);
+        {{field}}->getSliceBeforeGhostLayer(stencil::W, ci, outerWidth_[0], false);
+        ci.expand(Cell(0, -outerWidth_[1], -outerWidth_[2]));
         layers_.push_back(ci);
     }
 

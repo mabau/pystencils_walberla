@@ -52,8 +52,8 @@ namespace {{namespace}} {
 class {{class_name}}
 {
 public:
-    {{class_name}}( {{kernel|generate_constructor_parameters}})
-        : {{ kernel|generate_constructor_initializer_list }}
+    {{class_name}}( {{kernel|generate_constructor_parameters}}, const Cell & outerWidth=Cell(1, 1, 1))
+        : {{ kernel|generate_constructor_initializer_list }}, outerWidth_(outerWidth)
     {};
 
     {{ kernel| generate_destructor(class_name) |indent(4) }}
@@ -98,6 +98,7 @@ private:
     cuda::ParallelStreams parallelStreams_;
     {% endif %}
 
+    Cell outerWidth_;
     std::vector<CellInterval> layers_;
 };
 
