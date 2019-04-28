@@ -1,9 +1,14 @@
 import pystencils as ps
 from pystencils_walberla import generate_pack_info_for_field, generate_pack_info_from_kernel
 from pystencils_walberla.cmake_integration import ManualCodeGenerationContext
+import unittest
 
-def test_packinfo_walberla_gen():
-    for openmp in (False, True):
+
+class PackinfoGenTest(unittest.TestCase):
+
+    @staticmethod
+    def test_packinfo_walberla_gen():
+        for openmp in (False, True):
             for da in (False, True):
                 with ManualCodeGenerationContext(openmp=openmp, double_accuracy=da) as ctx:
                     dtype = "float64" if ctx.double_accuracy else "float32"
@@ -29,4 +34,3 @@ def test_packinfo_walberla_gen():
                             assert 'float ' not in file_to_test
                         else:
                             assert 'double ' not in file_to_test
-
