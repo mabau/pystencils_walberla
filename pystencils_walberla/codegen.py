@@ -6,7 +6,7 @@ from typing import Dict, Sequence, Tuple, Optional
 from pystencils import create_staggered_kernel, Field, create_kernel, Assignment, FieldType
 from pystencils.backends.cbackend import get_headers
 from pystencils.backends.simd_instruction_sets import get_supported_instruction_sets
-from pystencils.stencils import offset_to_direction_string, inverse_direction
+from pystencils.stencil import offset_to_direction_string, inverse_direction
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
 
 
