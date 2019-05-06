@@ -18,6 +18,31 @@ def generate_sweep(generation_context, class_name, assignments,
                    namespace='pystencils', field_swaps=(), staggered=False, varying_parameters=(),
                    inner_outer_split=False,
                    **create_kernel_params):
+    """Generates a waLBerla sweep from a pystencils representation.
+
+    The constructor of the C++ sweep class expects all kernel parameters (fields and parameters) in alphabetical order.
+    Fields have to passed using BlockDataID's pointing to walberla fields
+
+    Args:
+        generation_context: build system context filled with information from waLBerla's CMake. The context for example
+                            defines where to write generated files, if OpenMP is available or which SIMD instruction
+                            set should be used. See waLBerla examples on how to get a context.
+        class_name: name of the generated sweep class
+        assignments: list of assignments defining the stencil update rule
+        namespace: the generated class is accessible as walberla::<namespace>::<class_name>
+        field_swaps: sequence of field pairs (field, temporary_field). The generated sweep only gets the first field
+                     as argument, creating a temporary field internally which is swapped with the first field after
+                     each iteration.
+        staggered: set to True to create staggered kernels, in this case assignments has to be a tuple with arguments
+                   to `pystencils.create_staggered_kernel`
+        varying_parameters: Depending on the configuration, the generated kernels may receive different arguments for
+                            different setups. To not have to adapt the C++ application when then parameter change,
+                            the varying_parameters sequence can contain parameter names, which are always expected by
+                            the C++ class constructor even if the kernel does not need them.
+        inner_outer_split: if True generate a sweep that supports separate iteration over inner and outer regions
+                           to allow for communication hiding.
+        **create_kernel_params: remaining keyword arguments are passed to `pystencils.create_kernel`
+    """
     if hasattr(assignments, 'all_assignments'):
         assignments = assignments.all_assignments
 
@@ -76,6 +101,16 @@ def generate_sweep(generation_context, class_name, assignments,
 def generate_pack_info_for_field(generation_context, class_name: str, field: Field,
                                  direction_subset: Optional[Tuple[Tuple[int, int, int]]] = None,
                                  **create_kernel_params):
+    """Creates a pack info for a pystencils field assuming a pull-type stencil, packing all cell elements.
+
+    Args:
+        generation_context: see documentation of `generate_sweep`
+        class_name: name of the generated class
+        field: pystencils field for which to generate pack info
+        direction_subset: optional sequence of directions for which values should be packed
+                          otherwise a D3Q27 stencil is assumed
+        **create_kernel_params: remaining keyword arguments are passed to `pystencils.create_kernel`
+    """
     if not direction_subset:
         direction_subset = tuple((i, j, k) for i, j, k in product(*[(-1, 0, 1)] * 3))
 
@@ -86,6 +121,15 @@ def generate_pack_info_for_field(generation_context, class_name: str, field: Fie
 
 def generate_pack_info_from_kernel(generation_context, class_name: str, assignments: Sequence[Assignment],
                                    **create_kernel_params):
+    """Generates a waLBerla GPU PackInfo from a (pull) kernel.
+
+    Args:
+        generation_context: see documentation of `generate_sweep`
+        class_name: name of the generated class
+        assignments: list of assignments from the compute kernel - generates PackInfo for "pull" part only
+                     i.e. the kernel is expected to only write to the center
+        **create_kernel_params: remaining keyword arguments are passed to `pystencils.create_kernel`
+    """
     reads = set()
     for a in assignments:
         reads.update(a.rhs.atoms(Field.Access))
@@ -101,6 +145,16 @@ def generate_pack_info(generation_context, class_name: str,
                        directions_to_pack_terms: Dict[Tuple[Tuple], Sequence[Field.Access]],
                        namespace='pystencils',
                        **create_kernel_params):
+    """Generates a waLBerla GPU PackInfo
+
+    Args:
+        generation_context: see documentation of `generate_sweep`
+        class_name: name of the generated class
+        directions_to_pack_terms: maps tuples of directions to read field accesses, specifying which values have to be
+                                  packed for which direction
+        namespace: inner namespace of the generated class
+        **create_kernel_params: remaining keyword arguments are passed to `pystencils.create_kernel`
+    """
     items = [(e[0], sorted(e[1], key=lambda x: str(x))) for e in directions_to_pack_terms.items()]
     items = sorted(items, key=lambda e: e[0])
     directions_to_pack_terms = OrderedDict(items)
