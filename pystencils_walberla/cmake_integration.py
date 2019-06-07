@@ -44,14 +44,15 @@ def parse_json_args():
                               'WALBERLA_OPTIMIZE_FOR_LOCALHOST': False,
                               'WALBERLA_DOUBLE_ACCURACY': True,
                               'WALBERLA_BUILD_WITH_MPI': True,
-                              'WALBERLA_BUILD_WITH_CUDA': False}
+                              'WALBERLA_BUILD_WITH_CUDA': False,
+                              "CODEGEN_CFG": ""}
                }
 
     if len(sys.argv) == 2:
         try:
             parsed = json.loads(sys.argv[1])
         except json.JSONDecodeError:
-            warnings.warn("Could not parse JSON arguments")
+            warnings.warn("Could not parse JSON arguments: " + sys.argv[1])
             parsed = default
     else:
         parsed = default
@@ -74,6 +75,7 @@ class CodeGenerationContext:
         self.mpi = cmake_vars['WALBERLA_BUILD_WITH_MPI']
         self.double_accuracy = cmake_vars['WALBERLA_DOUBLE_ACCURACY']
         self.cuda = cmake_vars['WALBERLA_BUILD_WITH_CUDA']
+        self.config = cmake_vars['CODEGEN_CFG'].strip()
 
     def write_file(self, name, content):
         self.files_written.append(os.path.abspath(name))
@@ -93,7 +95,7 @@ class ManualCodeGenerationContext:
         self.double_accuracy = double_accuracy
         self.files = dict()
         self.cuda = False
-
+        self.config = ""
     def write_file(self, name, content):
         self.files[name] = content
 
