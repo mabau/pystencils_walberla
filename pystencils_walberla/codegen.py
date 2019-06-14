@@ -3,7 +3,7 @@ from collections import OrderedDict, defaultdict
 from itertools import product
 from typing import Dict, Sequence, Tuple, Optional
 
-from pystencils import create_staggered_kernel, Field, create_kernel, Assignment, FieldType
+from pystencils import create_staggered_kernel, Field, create_kernel, Assignment, FieldType, AssignmentCollection
 from pystencils.backends.cbackend import get_headers
 from pystencils.backends.simd_instruction_sets import get_supported_instruction_sets
 from pystencils.stencil import offset_to_direction_string, inverse_direction
@@ -120,7 +120,7 @@ def generate_pack_info_for_field(generation_context, class_name: str, field: Fie
 
 
 def generate_pack_info_from_kernel(generation_context, class_name: str, assignments: Sequence[Assignment],
-                                   **create_kernel_params):
+                                   kind='pull', **create_kernel_params):
     """Generates a waLBerla GPU PackInfo from a (pull) kernel.
 
     Args:
@@ -128,16 +128,37 @@ def generate_pack_info_from_kernel(generation_context, class_name: str, assignme
         class_name: name of the generated class
         assignments: list of assignments from the compute kernel - generates PackInfo for "pull" part only
                      i.e. the kernel is expected to only write to the center
+        kind:                      
         **create_kernel_params: remaining keyword arguments are passed to `pystencils.create_kernel`
     """
+    assert kind in ('push', 'pull')
     reads = set()
+    writes = set()
+
+    if isinstance(assignments, AssignmentCollection):
+        assignments = assignments.all_assignments
+
     for a in assignments:
         reads.update(a.rhs.atoms(Field.Access))
+        writes.update(a.lhs.atoms(Field.Access))
     spec = defaultdict(set)
-    for fa in reads:
-        assert all(abs(e) <= 1 for e in fa.offsets)
-        for comm_dir in comm_directions(fa.offsets):
-            spec[(comm_dir,)].add(fa.field.center(*fa.index))
+    if kind == 'pull':
+        for fa in reads:
+            assert all(abs(e) <= 1 for e in fa.offsets)
+            if all(offset == 0 for offset in fa.offsets):
+                continue
+            comm_direction = inverse_direction(fa.offsets)
+            for comm_dir in comm_directions(comm_direction):
+                spec[(comm_dir,)].add(fa.field.center(*fa.index))
+    elif kind == 'push':
+        for fa in writes:
+            assert all(abs(e) <= 1 for e in fa.offsets)
+            if all(offset == 0 for offset in fa.offsets):
+                continue
+            for comm_dir in comm_directions(fa.offsets):
+                spec[(comm_dir,)].add(fa)
+    else:
+        raise ValueError("Invalid 'kind' parameter")
     return generate_pack_info(generation_context, class_name, spec, **create_kernel_params)
 
 
@@ -168,14 +189,17 @@ def generate_pack_info(generation_context, class_name: str,
     fields_accessed = set()
     for terms in directions_to_pack_terms.values():
         for term in terms:
-            assert isinstance(term, Field.Access) and all(e == 0 for e in term.offsets)
+            assert isinstance(term, Field.Access) #and all(e == 0 for e in term.offsets)
             fields_accessed.add(term)
 
     field_names = {fa.field.name for fa in fields_accessed}
 
     data_types = {fa.field.dtype for fa in fields_accessed}
+    if len(data_types) == 0:
+        raise ValueError("No fields to pack!")
     if len(data_types) != 1:
-        raise NotImplementedError("Fields of different data types are used - this is not supported")
+        err_detail = "\n".join(" - {} [{}]".format(f.name, f.dtype) for f in fields_accessed)
+        raise NotImplementedError("Fields of different data types are used - this is not supported.\n" + err_detail)
     dtype = data_types.pop()
 
     pack_kernels = OrderedDict()
@@ -191,18 +215,17 @@ def generate_pack_info(generation_context, class_name: str,
                                       dtype=dtype.numpy_dtype, index_shape=(len(terms),))
 
         direction_strings = tuple(offset_to_direction_string(d) for d in direction_set)
-        inv_direction_string = tuple(offset_to_direction_string(inverse_direction(d)) for d in direction_set)
         all_accesses.update(terms)
 
-        pack_ast = create_kernel([Assignment(buffer(i), term) for i, term in enumerate(terms)],
-                                 **create_kernel_params)
+        pack_assignments = [Assignment(buffer(i), term) for i, term in enumerate(terms)]
+        pack_ast = create_kernel(pack_assignments, **create_kernel_params, ghost_layers=0)
         pack_ast.function_name = 'pack_{}'.format("_".join(direction_strings))
-        unpack_ast = create_kernel([Assignment(term, buffer(i)) for i, term in enumerate(terms)],
-                                   **create_kernel_params)
-        unpack_ast.function_name = 'unpack_{}'.format("_".join(inv_direction_string))
+        unpack_assignments = [Assignment(term, buffer(i)) for i, term in enumerate(terms)]
+        unpack_ast = create_kernel(unpack_assignments, **create_kernel_params, ghost_layers=0)
+        unpack_ast.function_name = 'unpack_{}'.format("_".join(direction_strings))
 
         pack_kernels[direction_strings] = KernelInfo(pack_ast)
-        unpack_kernels[inv_direction_string] = KernelInfo(unpack_ast)
+        unpack_kernels[direction_strings] = KernelInfo(unpack_ast)
         elements_per_cell[direction_strings] = len(terms)
 
     fused_kernel = create_kernel([Assignment(buffer.center, t) for t in all_accesses], **create_kernel_params)
@@ -267,7 +290,6 @@ def default_create_kernel_parameters(generation_context, params):
 
 
 def comm_directions(direction):
-    direction = inverse_direction(direction)
     yield direction
     for i in range(len(direction)):
         if direction[i] != 0:
