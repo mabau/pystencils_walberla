@@ -43,4 +43,8 @@ setup(name='pystencils_walberla',
       install_requires=['pystencils[alltrafos]', 'jinja2'],
       package_data={'pystencils_walberla': ['templates/*']},
       test_suite='pystencils_walberla_tests',
+      project_urls={
+          "Bug Tracker": "https://i10git.cs.fau.de/pycodegen/pystencils_walberla/issues",
+          "Source Code": "https://i10git.cs.fau.de/pycodegen/pystencils_walberla",
+      },
       )
