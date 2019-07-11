@@ -1,8 +1,10 @@
+import unittest
+
 import sympy as sp
+
 import pystencils as ps
 from pystencils_walberla import generate_sweep
 from pystencils_walberla.cmake_integration import ManualCodeGenerationContext
-import unittest
 
 
 class CodegenTest(unittest.TestCase):

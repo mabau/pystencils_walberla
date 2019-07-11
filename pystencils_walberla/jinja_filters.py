@@ -1,8 +1,9 @@
-import sympy as sp
 import jinja2
+import sympy as sp
+
 from pystencils import TypedSymbol
+from pystencils.backends.cbackend import CustomSympyPrinter, generate_c
 from pystencils.data_types import get_base_type
-from pystencils.backends.cbackend import generate_c, CustomSympyPrinter
 from pystencils.field import FieldType
 from pystencils.kernelparameters import SHAPE_DTYPE
 from pystencils.sympyextensions import prod

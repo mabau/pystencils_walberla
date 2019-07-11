@@ -1,14 +1,15 @@
-from jinja2 import Environment, PackageLoader
 from collections import OrderedDict, defaultdict
 from itertools import product
-from typing import Dict, Sequence, Tuple, Optional
+from typing import Dict, Optional, Sequence, Tuple
 
-from pystencils import create_staggered_kernel, Field, create_kernel, Assignment, FieldType, AssignmentCollection
+from jinja2 import Environment, PackageLoader
+
+from pystencils import (
+    Assignment, AssignmentCollection, Field, FieldType, create_kernel, create_staggered_kernel)
 from pystencils.backends.cbackend import get_headers
 from pystencils.backends.simd_instruction_sets import get_supported_instruction_sets
-from pystencils.stencil import offset_to_direction_string, inverse_direction
+from pystencils.stencil import inverse_direction, offset_to_direction_string
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
-
 
 __all__ = ['generate_sweep', 'generate_pack_info', 'generate_pack_info_for_field', 'generate_pack_info_from_kernel',
            'default_create_kernel_parameters', 'KernelInfo']

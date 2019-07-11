@@ -1,7 +1,8 @@
+import unittest
+
 import pystencils as ps
 from pystencils_walberla import generate_pack_info_for_field, generate_pack_info_from_kernel
 from pystencils_walberla.cmake_integration import ManualCodeGenerationContext
-import unittest
 
 
 class PackinfoGenTest(unittest.TestCase):

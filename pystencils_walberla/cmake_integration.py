@@ -10,8 +10,8 @@ Usage example:
 
 """
 import json
-import sys
 import os
+import sys
 import warnings
 
 __all__ = ['CodeGeneration', 'ManualCodeGenerationContext']
