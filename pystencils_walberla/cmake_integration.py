@@ -32,7 +32,8 @@ class CodeGeneration:
             only_generated = set(self.context.files_written) - set(self.expected_files)
             error_message = "Generated files specified not correctly in cmake with 'waLBerla_python_file_generates'\n"
             if only_in_cmake:
-                error_message += "Files only specified in CMake {}\n".format([os.path.basename(p) for p in only_in_cmake])
+                error_message += "Files only specified in CMake {}\n".format(
+                    [os.path.basename(p) for p in only_in_cmake])
             if only_generated:
                 error_message += "Unexpected generated files {}\n".format([os.path.basename(p) for p in only_generated])
             raise ValueError(error_message)
@@ -88,6 +89,7 @@ class ManualCodeGenerationContext:
     Environment parameters like if OpenMP, MPI or CPU-specific optimization should be used can be explicitly passed
     to constructor instead of getting them from CMake
     """
+
     def __init__(self, openmp=False, optimize_for_localhost=False, mpi=True, double_accuracy=True):
         self.openmp = openmp
         self.optimize_for_localhost = optimize_for_localhost
@@ -96,6 +98,7 @@ class ManualCodeGenerationContext:
         self.files = dict()
         self.cuda = False
         self.config = ""
+
     def write_file(self, name, content):
         self.files[name] = content
 

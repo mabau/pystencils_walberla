@@ -44,9 +44,6 @@ def generate_sweep(generation_context, class_name, assignments,
                            to allow for communication hiding.
         **create_kernel_params: remaining keyword arguments are passed to `pystencils.create_kernel`
     """
-    if hasattr(assignments, 'all_assignments'):
-        assignments = assignments.all_assignments
-
     create_kernel_params = default_create_kernel_parameters(generation_context, create_kernel_params)
 
     if not generation_context.cuda and create_kernel_params['target'] == 'gpu':
@@ -184,8 +181,7 @@ def generate_pack_info(generation_context, class_name: str,
     create_kernel_params = default_create_kernel_parameters(generation_context, create_kernel_params)
     target = create_kernel_params.get('target', 'cpu')
 
-    if not generation_context.cuda and target == 'gpu':
-        return
+    template_name = "CpuPackInfo.tmpl" if target == 'cpu' else 'GpuPackInfo.tmpl'
 
     fields_accessed = set()
     for terms in directions_to_pack_terms.values():
@@ -237,18 +233,18 @@ def generate_pack_info(generation_context, class_name: str,
         'unpack_kernels': unpack_kernels,
         'fused_kernel': KernelInfo(fused_kernel),
         'elements_per_cell': elements_per_cell,
+        'headers': get_headers(fused_kernel),
         'target': target,
         'dtype': dtype,
         'field_name': field_names.pop(),
         'namespace': namespace,
     }
-
     env = Environment(loader=PackageLoader('pystencils_walberla'))
     add_pystencils_filters_to_jinja_env(env)
-    header = env.get_template("GpuPackInfo.tmpl.h").render(**jinja_context)
-    source = env.get_template("GpuPackInfo.tmpl.cpp").render(**jinja_context)
+    header = env.get_template(template_name + ".h").render(**jinja_context)
+    source = env.get_template(template_name + ".cpp").render(**jinja_context)
 
-    source_extension = "cpp" if create_kernel_params.get("target", "cpu") == "cpu" else "cu"
+    source_extension = "cpp" if target == "cpu" else "cu"
     generation_context.write_file("{}.h".format(class_name), header)
     generation_context.write_file("{}.{}".format(class_name, source_extension), source)
 
