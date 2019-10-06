@@ -1,6 +1,5 @@
 #include "stencil/Directions.h"
 #include "core/cell/CellInterval.h"
-#include "cuda/GPUField.h"
 #include "core/DataTypes.h"
 #include "{{class_name}}.h"
 

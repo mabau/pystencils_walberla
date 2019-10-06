@@ -12,7 +12,7 @@ from pystencils.stencil import inverse_direction, offset_to_direction_string
 from pystencils_walberla.jinja_filters import add_pystencils_filters_to_jinja_env
 
 __all__ = ['generate_sweep', 'generate_pack_info', 'generate_pack_info_for_field', 'generate_pack_info_from_kernel',
-           'default_create_kernel_parameters', 'KernelInfo']
+           'generate_mpidtype_info_from_kernel', 'default_create_kernel_parameters', 'KernelInfo']
 
 
 def generate_sweep(generation_context, class_name, assignments,
@@ -247,6 +247,60 @@ def generate_pack_info(generation_context, class_name: str,
     source_extension = "cpp" if target == "cpu" else "cu"
     generation_context.write_file("{}.h".format(class_name), header)
     generation_context.write_file("{}.{}".format(class_name, source_extension), source)
+
+
+def generate_mpidtype_info_from_kernel(generation_context, class_name: str,
+                                       assignments: Sequence[Assignment], kind='pull',  namespace='pystencils',):
+    assert kind in ('push', 'pull')
+    reads = set()
+    writes = set()
+
+    if isinstance(assignments, AssignmentCollection):
+        assignments = assignments.all_assignments
+
+    for a in assignments:
+        reads.update(a.rhs.atoms(Field.Access))
+        writes.update(a.lhs.atoms(Field.Access))
+
+    spec = defaultdict(set)
+    if kind == 'pull':
+        read_fields = set(fa.field for fa in reads)
+        assert len(read_fields) == 1, "Only scenarios where one fields neighbors are accessed"
+        field = read_fields.pop()
+        for fa in reads:
+            assert all(abs(e) <= 1 for e in fa.offsets)
+            if all(offset == 0 for offset in fa.offsets):
+                continue
+            comm_direction = inverse_direction(fa.offsets)
+            for comm_dir in comm_directions(comm_direction):
+                assert len(fa.index) == 1, "Supports only fields with a single index dimension"
+                spec[(offset_to_direction_string(comm_dir),)].add(fa.index[0])
+    elif kind == 'push':
+        written_fields = set(fa.field for fa in writes)
+        assert len(written_fields) == 1, "Only scenarios where one fields neighbors are accessed"
+        field = written_fields.pop()
+
+        for fa in writes:
+            assert all(abs(e) <= 1 for e in fa.offsets)
+            if all(offset == 0 for offset in fa.offsets):
+                continue
+            for comm_dir in comm_directions(fa.offsets):
+                assert len(fa.index) == 1, "Supports only fields with a single index dimension"
+                spec[(offset_to_direction_string(comm_dir),)].add(fa.index[0])
+    else:
+        raise ValueError("Invalid 'kind' parameter")
+
+    jinja_context = {
+        'class_name': class_name,
+        'namespace': namespace,
+        'kind': kind,
+        'field_name': field.name,
+        'f_size': field.index_shape[0],
+        'spec': spec,
+    }
+    env = Environment(loader=PackageLoader('pystencils_walberla'))
+    header = env.get_template("MpiDtypeInfo.tmpl.h").render(**jinja_context)
+    generation_context.write_file("{}.h".format(class_name), header)
 
 
 # ---------------------------------- Internal --------------------------------------------------------------------------
