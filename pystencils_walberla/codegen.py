@@ -137,6 +137,8 @@ def generate_pack_info_from_kernel(generation_context, class_name: str, assignme
         assignments = assignments.all_assignments
 
     for a in assignments:
+        if not isinstance(a, Assignment):
+            continue
         reads.update(a.rhs.atoms(Field.Access))
         writes.update(a.lhs.atoms(Field.Access))
     spec = defaultdict(set)
@@ -259,6 +261,8 @@ def generate_mpidtype_info_from_kernel(generation_context, class_name: str,
         assignments = assignments.all_assignments
 
     for a in assignments:
+        if not isinstance(a, Assignment):
+            continue
         reads.update(a.rhs.atoms(Field.Access))
         writes.update(a.lhs.atoms(Field.Access))
 
