@@ -188,7 +188,7 @@ def generate_pack_info(generation_context, class_name: str,
     fields_accessed = set()
     for terms in directions_to_pack_terms.values():
         for term in terms:
-            assert isinstance(term, Field.Access) #and all(e == 0 for e in term.offsets)
+            assert isinstance(term, Field.Access)  # and all(e == 0 for e in term.offsets)
             fields_accessed.add(term)
 
     field_names = {fa.field.name for fa in fields_accessed}
@@ -252,7 +252,7 @@ def generate_pack_info(generation_context, class_name: str,
 
 
 def generate_mpidtype_info_from_kernel(generation_context, class_name: str,
-                                       assignments: Sequence[Assignment], kind='pull',  namespace='pystencils',):
+                                       assignments: Sequence[Assignment], kind='pull', namespace='pystencils', ):
     assert kind in ('push', 'pull')
     reads = set()
     writes = set()
@@ -345,10 +345,23 @@ def default_create_kernel_parameters(generation_context, params):
 
 
 def comm_directions(direction):
-    yield direction
-    for i in range(len(direction)):
-        if direction[i] != 0:
-            dir_as_list = list(direction)
-            dir_as_list[i] = 0
-            if not all(e == 0 for e in dir_as_list):
-                yield tuple(dir_as_list)
+    if all(e == 0 for e in direction):
+        yield direction
+    binary_numbers_list = binary_numbers(len(direction))
+    for comm_direction in binary_numbers_list:
+        for i in range(len(direction)):
+            if direction[i] == 0:
+                comm_direction[i] = 0
+            if direction[i] == -1 and comm_direction[i] == 1:
+                comm_direction[i] = -1
+        if not all(e == 0 for e in comm_direction):
+            yield tuple(comm_direction)
+
+
+def binary_numbers(n):
+    result = list()
+    for i in range(1 << n):
+        binary_number = bin(i)[2:]
+        binary_number = '0' * (n - len(binary_number)) + binary_number
+        result.append((list(map(int, binary_number))))
+    return result
