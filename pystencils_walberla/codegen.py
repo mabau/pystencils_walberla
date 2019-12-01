@@ -34,8 +34,7 @@ def generate_sweep(generation_context, class_name, assignments,
         field_swaps: sequence of field pairs (field, temporary_field). The generated sweep only gets the first field
                      as argument, creating a temporary field internally which is swapped with the first field after
                      each iteration.
-        staggered: set to True to create staggered kernels, in this case assignments has to be a tuple with arguments
-                   to `pystencils.create_staggered_kernel`
+        staggered: set to True to create staggered kernels with `pystencils.create_staggered_kernel`
         varying_parameters: Depending on the configuration, the generated kernels may receive different arguments for
                             different setups. To not have to adapt the C++ application when then parameter change,
                             the varying_parameters sequence can contain parameter names, which are always expected by
@@ -52,7 +51,7 @@ def generate_sweep(generation_context, class_name, assignments,
     if not staggered:
         ast = create_kernel(assignments, **create_kernel_params)
     else:
-        ast = create_staggered_kernel(*assignments, **create_kernel_params)
+        ast = create_staggered_kernel(assignments, **create_kernel_params)
 
     def to_name(f):
         return f.name if isinstance(f, Field) else f
