@@ -28,8 +28,10 @@ class CodeGeneration:
 
     def __exit__(self, *args):
         if self.expected_files and (set(self.context.files_written) != set(self.expected_files)):
-            only_in_cmake = set(self.expected_files) - set(self.context.files_written)
-            only_generated = set(self.context.files_written) - set(self.expected_files)
+            expected = set(os.path.realpath(f) for f in self.expected_files)
+            written = set(os.path.realpath(f) for f in self.context.files_written)
+            only_in_cmake = expected - written
+            only_generated = written - expected
             error_message = "Generated files specified not correctly in cmake with 'waLBerla_python_file_generates'\n"
             if only_in_cmake:
                 error_message += "Files only specified in CMake {}\n".format(
