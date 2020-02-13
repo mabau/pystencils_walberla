@@ -2,7 +2,7 @@ from collections import OrderedDict, defaultdict
 from itertools import product
 from typing import Dict, Optional, Sequence, Tuple
 
-from jinja2 import Environment, PackageLoader
+from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from pystencils import (
     Assignment, AssignmentCollection, Field, FieldType, create_kernel, create_staggered_kernel)
@@ -61,7 +61,7 @@ def generate_sweep(generation_context, class_name, assignments,
 
     ast.function_name = class_name.lower()
 
-    env = Environment(loader=PackageLoader('pystencils_walberla'))
+    env = Environment(loader=PackageLoader('pystencils_walberla'), undefined=StrictUndefined)
     add_pystencils_filters_to_jinja_env(env)
 
     if inner_outer_split is False:
@@ -240,7 +240,7 @@ def generate_pack_info(generation_context, class_name: str,
         'field_name': field_names.pop(),
         'namespace': namespace,
     }
-    env = Environment(loader=PackageLoader('pystencils_walberla'))
+    env = Environment(loader=PackageLoader('pystencils_walberla'), undefined=StrictUndefined)
     add_pystencils_filters_to_jinja_env(env)
     header = env.get_template(template_name + ".h").render(**jinja_context)
     source = env.get_template(template_name + ".cpp").render(**jinja_context)
@@ -301,7 +301,7 @@ def generate_mpidtype_info_from_kernel(generation_context, class_name: str,
         'f_size': field.index_shape[0],
         'spec': spec,
     }
-    env = Environment(loader=PackageLoader('pystencils_walberla'))
+    env = Environment(loader=PackageLoader('pystencils_walberla'), undefined=StrictUndefined)
     header = env.get_template("MpiDtypeInfo.tmpl.h").render(**jinja_context)
     generation_context.write_file("{}.h".format(class_name), header)
 
