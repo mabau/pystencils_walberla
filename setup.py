@@ -1,5 +1,6 @@
 from setuptools import setup
 import subprocess
+from distutils.version import StrictVersion
 
 
 def version_number_from_git(tag_prefix='release/', sha_length=10, version_format="{version}.dev{commits}+{sha}"):
@@ -17,7 +18,9 @@ def version_number_from_git(tag_prefix='release/', sha_length=10, version_format
         return '.'.join(str(i) for i in parsed_version)
 
     try:
-        latest_release = get_released_versions()[-1]
+        version_strings = get_released_versions()
+        version_strings.sort(key=StrictVersion)
+        latest_release = version_strings[-1]
     except subprocess.CalledProcessError:
         return open('RELEASE-VERSION', 'r').read()
 
