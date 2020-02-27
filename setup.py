@@ -43,9 +43,15 @@ def version_number_from_git(tag_prefix='release/', sha_length=10, version_format
     return version_string
 
 
+def readme():
+    with open('README.md') as f:
+        return f.read()
+
+
 setup(name='pystencils_walberla',
       version=version_number_from_git(),
       description='pystencils code generation for waLBerla apps',
+      long_description=readme(),
       author='Martin Bauer',
       license='AGPLv3',
       author_email='martin.bauer@fau.de',
